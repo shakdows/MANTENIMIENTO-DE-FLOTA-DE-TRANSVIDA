@@ -33,10 +33,12 @@ import { createRoot } from "react-dom/client";
 import {
   Truck, Wrench, Fuel, LayoutDashboard, AlertTriangle, CheckCircle2,
   Gauge, TrendingUp, Plus, X, Droplet, Activity, CircleDollarSign,
-  CircleDot, Ruler, BadgeDollarSign
+  CircleDot, Ruler, BadgeDollarSign, CalendarClock, User, Building2,
+  ClipboardList, ChevronDown
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  ComposedChart, Line, Area, ReferenceLine, Legend
 } from "recharts";
 
 /* ============================ THEME ============================ */
@@ -139,14 +141,71 @@ function tireStatus(t) {
   return { estado: "Operativa", color: C.green };
 }
 
+const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Set","Oct","Nov","Dic"];
+const fmtFecha = (d) => `${d.getDate()} ${MESES[d.getMonth()]}`;
+
+// Serie diaria de km (determinística por camión) terminando en el km actual
+function serieDiaria(truck, dias = 21) {
+  const base = truck.capGal >= 79 ? 210 : truck.capGal >= 53 ? 150 : 95;
+  const vals = [];
+  let total = 0;
+  const start = new Date("2026-05-31");
+  for (let i = 0; i < dias; i++) {
+    const d = new Date(start); d.setDate(start.getDate() - (dias - 1 - i));
+    const domingo = d.getDay() === 0;
+    const seed = Math.sin(truck.id * 12.9898 + i * 4.1414) * 0.5 + 0.5; // 0..1
+    let v = domingo ? 0 : Math.round((base * (0.65 + seed * 0.7)) / 5) * 5;
+    vals.push({ d, v });
+    total += v;
+  }
+  let acc = truck.km - total;
+  const startKm = acc;
+  const serie = vals.map(({ d, v }) => { acc += v; return { fecha: fmtFecha(d), kmDia: v, acum: acc }; });
+  const diasActivos = vals.filter((x) => x.v > 0).length || 1;
+  const prom = Math.round(total / diasActivos);
+  return { serie, prom, startKm };
+}
+
+// Próximo mantenimiento (el de menor km restante) + proyección de fecha
+function proximoMant(truck, kmDiaProm) {
+  let best = null;
+  MANT_TIPOS.forEach((tp) => {
+    const s = servStatus(tp, truck.desde[tp.key]);
+    if (!best || s.rem < best.rem) best = { tipo: tp, ...s };
+  });
+  const diasRest = best.rem > 0 ? Math.ceil(best.rem / Math.max(1, kmDiaProm)) : 0;
+  const fecha = new Date("2026-05-31");
+  fecha.setDate(fecha.getDate() + diasRest);
+  const kmObjetivo = truck.km + Math.max(0, best.rem);
+  return { ...best, diasRest, fecha, kmObjetivo };
+}
+
 /* ============================ APP ============================ */
+const DRIVER_TRUCK_ID = 1; // unidad asignada al conductor (demo)
+
+const ROLES = {
+  conductor: { label: "Conductor", icon: User,
+    sub: "Mi unidad · registro diario", tabs: ["miunidad"], puedeRegistrar: true },
+  gestion: { label: "Jefe de gestión", icon: ClipboardList,
+    sub: "Operación completa de flota", tabs: ["dashboard", "flota", "mant", "comb", "llantas", "proy"], puedeRegistrar: true },
+  gerencia: { label: "Gerencia", icon: Building2,
+    sub: "Indicadores y proyección", tabs: ["dashboard", "proy", "llantas"], puedeRegistrar: false },
+};
+
 function App() {
+  const [rol, setRol] = useState("gestion");
+  const [rolOpen, setRolOpen] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [flota, setFlota] = useState(FLOTA_INI);
   const [fuel, setFuel] = useState(FUEL_INI);
   const [llantas] = useState(LLANTAS_INI);
   const [fuelModal, setFuelModal] = useState(false);
   const [selTruck, setSelTruck] = useState(null);
+
+  const cambiarRol = (r) => {
+    setRol(r); setRolOpen(false);
+    setTab(ROLES[r].tabs[0]);
+  };
 
   const stats = useMemo(() => {
     let vencidos = 0, proximos = 0;
@@ -193,13 +252,20 @@ function App() {
     setFuelModal(false);
   };
 
-  const NAV = [
+  const updateKm = (truckId, km) =>
+    setFlota((prev) => prev.map((t) => (t.id === truckId ? { ...t, km } : t)));
+
+  const NAV_ALL = [
     { key: "dashboard", label: "Resumen", icon: LayoutDashboard },
     { key: "flota", label: "Flota", icon: Truck },
     { key: "mant", label: "Mantenimiento", icon: Wrench },
     { key: "comb", label: "Combustible", icon: Fuel },
     { key: "llantas", label: "Llantas", icon: CircleDot },
+    { key: "proy", label: "Proyección", icon: TrendingUp },
+    { key: "miunidad", label: "Mi unidad", icon: Truck },
   ];
+  const cfg = ROLES[rol];
+  const NAV = NAV_ALL.filter((n) => cfg.tabs.includes(n.key));
 
   return (
     <div style={{ background: C.bg, color: C.text, fontFamily: fontBody, minHeight: "100vh" }}>
@@ -231,15 +297,39 @@ function App() {
               </div>
             </div>
           </div>
-          <div className="flex items-center" style={{ gap: 16 }}>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 11, color: C.textFaint }}>Periodo</div>
-              <div style={{ fontFamily: fontDisplay, fontWeight: 600, fontSize: 13 }}>Mayo 2026</div>
+          <div className="flex items-center" style={{ gap: 12 }}>
+            {/* Selector de rol */}
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setRolOpen((o) => !o)} className="flex items-center"
+                style={{ gap: 9, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "7px 12px", cursor: "pointer", color: C.text, fontFamily: fontBody }}>
+                <cfg.icon size={16} color={C.teal} />
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.1 }}>{cfg.label}</div>
+                  <div style={{ fontSize: 10, color: C.textFaint }}>{cfg.sub}</div>
+                </div>
+                <ChevronDown size={14} color={C.textMut} />
+              </button>
+              {rolOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 11, padding: 6, minWidth: 210, zIndex: 40, boxShadow: "0 12px 30px rgba(0,0,0,.4)" }}>
+                  {Object.entries(ROLES).map(([k, r]) => (
+                    <button key={k} onClick={() => cambiarRol(k)} className="flex items-center"
+                      style={{ gap: 10, width: "100%", textAlign: "left", background: k === rol ? `${C.green}14` : "none", border: "none", borderRadius: 8, padding: "9px 10px", cursor: "pointer", color: C.text, fontFamily: fontBody }}>
+                      <r.icon size={16} color={k === rol ? C.green : C.textMut} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{r.label}</div>
+                        <div style={{ fontSize: 11, color: C.textFaint }}>{r.sub}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <button onClick={() => setFuelModal(true)} className="hov flex items-center"
-              style={{ gap: 7, background: C.green, color: "#04120C", border: "none", padding: "9px 15px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: fontBody }}>
-              <Plus size={16} strokeWidth={2.6} /> Abastecimiento
-            </button>
+            {cfg.puedeRegistrar && (
+              <button onClick={() => setFuelModal(true)} className="hov flex items-center"
+                style={{ gap: 7, background: C.green, color: "#04120C", border: "none", padding: "9px 15px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: fontBody }}>
+                <Plus size={16} strokeWidth={2.6} /> Abastecimiento
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -264,6 +354,11 @@ function App() {
         {tab === "mant" && <Mantenimiento flota={flota} onReg={registrarServicio} />}
         {tab === "comb" && <Combustible fuel={fuel} flota={flota} stats={stats} />}
         {tab === "llantas" && <Llantas flota={flota} llantas={llantas} />}
+        {tab === "proy" && <Proyeccion flota={flota} fuel={fuel} />}
+        {tab === "miunidad" && (
+          <Conductor truck={flota.find((t) => t.id === DRIVER_TRUCK_ID)} fuel={fuel}
+            onFuel={() => setFuelModal(true)} onUpdateKm={updateKm} />
+        )}
       </main>
 
       {fuelModal && <FuelModal flota={flota} onClose={() => setFuelModal(false)} onSave={addFuel} />}
@@ -624,6 +719,175 @@ function Llantas({ flota, llantas }) {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================ PROYECCIÓN ============================ */
+function Proyeccion({ flota, fuel }) {
+  const [sel, setSel] = useState(flota[0].id);
+  const truck = flota.find((t) => t.id === sel);
+  const { serie, prom } = serieDiaria(truck);
+  const next = proximoMant(truck, prom);
+
+  const histo = serie.map((d) => ({ fecha: d.fecha, real: d.acum, proy: null }));
+  const proy = [];
+  if (next.diasRest > 0) {
+    histo[histo.length - 1].proy = truck.km;
+    const start = new Date("2026-05-31");
+    const steps = Math.min(next.diasRest, 40);
+    const inc = next.diasRest > 40 ? next.diasRest / 40 : 1;
+    for (let i = 1; i <= steps; i++) {
+      const dd = Math.round(i * inc);
+      const d = new Date(start); d.setDate(start.getDate() + dd);
+      proy.push({ fecha: fmtFecha(d), real: null, proy: Math.round(truck.km + prom * dd) });
+    }
+  }
+  const data = [...histo, ...proy];
+
+  const fl = fuel.filter((f) => f.truckId === truck.id)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .map((f) => ({ fecha: f.fecha.slice(5).replace("-", "/"), galones: f.galones,
+      costo: +(f.galones * f.precio).toFixed(2), km: f.km, rend: +((f.km - f.kmAnt) / f.galones).toFixed(1) }));
+  const compradoGal = fl.reduce((a, f) => a + f.galones, 0);
+  const gastoTot = fl.reduce((a, f) => a + f.costo, 0);
+  const kmIni = fl.length ? fl[0].km : truck.km;
+  const kmFin = fl.length ? fl[fl.length - 1].km : truck.km;
+  const rendProm = compradoGal ? (kmFin - kmIni) / compradoGal : 0;
+
+  const selStyle = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "9px 12px", color: C.text, fontSize: 14, fontFamily: fontBody };
+
+  return (
+    <div>
+      <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+        <div className="flex items-center" style={{ gap: 10 }}>
+          <TrendingUp size={20} color={C.green} />
+          <h2 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 18, margin: 0 }}>Proyección de uso y mantenimiento</h2>
+        </div>
+        <select value={sel} onChange={(e) => setSel(+e.target.value)} style={selStyle}>
+          {flota.map((t) => <option key={t.id} value={t.id} style={{ background: C.surface }}>{t.placa} · {t.modelo}</option>)}
+        </select>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px,1fr))", gap: 13, marginBottom: 18 }}>
+        <Kpi icon={Gauge} label="Promedio diario" value={`${num(prom)} km`} sub="días laborables" accent={C.teal} delay={0} />
+        <Kpi icon={Wrench} label="Próximo servicio" value={next.tipo.nombre.split(" ")[0]} sub={next.tipo.nombre} accent={C.amber} delay={50} />
+        <Kpi icon={CalendarClock} label="Fecha estimada"
+          value={next.diasRest > 0 ? fmtFecha(next.fecha) : "Vencido"}
+          sub={next.diasRest > 0 ? `en ~${next.diasRest} días` : `${num(Math.abs(next.rem))} km excedidos`}
+          accent={next.diasRest > 0 ? C.green : C.red} delay={100} />
+        <Kpi icon={Activity} label="Km al mantenimiento" value={next.rem > 0 ? `${num(next.rem)} km` : "0 km"} sub={`objetivo: ${num(next.kmObjetivo)} km`} accent={C.blue} delay={150} />
+      </div>
+
+      {/* Predicción */}
+      <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, marginBottom: 18, animationDelay: "180ms" }}>
+        <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Kilometraje acumulado y predicción</h3>
+        <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 14 }}>
+          línea sólida = recorrido real · punteada = proyección al ritmo actual ({num(prom)} km/día)
+        </div>
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={data} margin={{ left: 4, right: 14, top: 8 }}>
+            <CartesianGrid stroke={C.borderSoft} vertical={false} />
+            <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10} interval="preserveStartEnd" minTickGap={28} />
+            <YAxis stroke={C.textFaint} fontSize={11} domain={["auto", "auto"]} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} width={42} />
+            <Tooltip contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => v ? [`${num(v)} km`] : null} />
+            <ReferenceLine y={next.kmObjetivo} stroke={C.red} strokeDasharray="5 4"
+              label={{ value: "Mantenimiento", position: "insideTopRight", fill: C.red, fontSize: 10.5 }} />
+            <Area type="monotone" dataKey="real" name="Recorrido real" stroke={C.green} strokeWidth={2.4} fill={`${C.green}22`} connectNulls={false} dot={false} />
+            <Line type="monotone" dataKey="proy" name="Proyección" stroke={C.amber} strokeWidth={2.2} strokeDasharray="5 4" connectNulls dot={false} />
+            <Legend wrapperStyle={{ fontSize: 11.5, color: C.textMut }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        {next.diasRest > 0 && (
+          <div style={{ marginTop: 12, padding: "11px 14px", background: `${C.amber}12`, borderRadius: 10, fontSize: 13, color: C.text }}>
+            Al ritmo de <b>{num(prom)} km/día</b>, <b>{truck.placa}</b> llegará a su <b>{next.tipo.nombre.toLowerCase()}</b> alrededor del <b style={{ color: C.amber }}>{fmtFecha(next.fecha)}</b> (~{next.diasRest} días).
+          </div>
+        )}
+      </div>
+
+      {/* Combustible del camión */}
+      <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, animationDelay: "240ms" }}>
+        <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Combustible de {truck.placa}</h3>
+          <div className="flex items-center" style={{ gap: 16, fontSize: 12, color: C.textMut, flexWrap: "wrap" }}>
+            <span>Compró <b style={{ color: C.text }}>{num(compradoGal)} gal</b></span>
+            <span>Gastó <b style={{ color: C.green }}>{soles(gastoTot)}</b></span>
+            <span>Km <b style={{ color: C.text }}>{num(kmIni)} → {num(kmFin)}</b></span>
+            <span>Rinde <b style={{ color: C.teal }}>{rendProm.toFixed(1)} km/gal</b></span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 14 }}>barras = costo por carga (S/) · línea = odómetro (km)</div>
+        <ResponsiveContainer width="100%" height={270}>
+          <ComposedChart data={fl} margin={{ left: 4, right: 8, top: 8 }}>
+            <CartesianGrid stroke={C.borderSoft} vertical={false} />
+            <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10.5} />
+            <YAxis yAxisId="L" stroke={C.amber} fontSize={11} tickFormatter={(v) => `S/${v}`} width={48} />
+            <YAxis yAxisId="R" orientation="right" stroke={C.teal} fontSize={11} domain={["auto", "auto"]} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} width={42} />
+            <Tooltip contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }}
+              formatter={(v, n) => n === "Costo" ? [soles(v), "Costo"] : [`${num(v)} km`, "Odómetro"]} />
+            <Bar yAxisId="L" dataKey="costo" name="Costo" fill={C.amber} radius={[4, 4, 0, 0]} maxBarSize={34} />
+            <Line yAxisId="R" type="monotone" dataKey="km" name="Odómetro" stroke={C.teal} strokeWidth={2.4} dot={{ r: 3, fill: C.teal }} />
+            <Legend wrapperStyle={{ fontSize: 11.5, color: C.textMut }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/* ============================ CONDUCTOR ============================ */
+function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
+  const [km, setKm] = useState(String(truck.km));
+  const { prom } = serieDiaria(truck);
+  const next = proximoMant(truck, prom);
+  const cambio = +km !== truck.km && +km > 0;
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <div className="rise" style={{ background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, border: `1px solid ${C.border}`, borderRadius: 18, padding: 24, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: C.textMut }}>Tu unidad asignada</div>
+        <div className="flex items-center" style={{ gap: 12, marginTop: 4 }}>
+          <span style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 34, letterSpacing: ".5px" }}>{truck.placa}</span>
+          <span className="flex items-center" style={{ gap: 6, fontSize: 12, fontWeight: 600, color: estadoColor(truck.estado), background: `${estadoColor(truck.estado)}1A`, padding: "5px 11px", borderRadius: 8 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: estadoColor(truck.estado) }} /> {truck.estado}
+          </span>
+        </div>
+        <div style={{ fontSize: 13.5, color: C.textMut, marginTop: 4 }}>{truck.modelo} · {num(truck.km)} km</div>
+      </div>
+
+      {/* Próximo mantenimiento — grande y claro */}
+      <div className="rise" style={{ background: C.surface, border: `1px solid ${next.diasRest > 0 && next.diasRest < 7 ? C.amber : C.border}`, borderRadius: 16, padding: 22, marginBottom: 16, animationDelay: "60ms" }}>
+        <div className="flex items-center" style={{ gap: 9, marginBottom: 12 }}>
+          <CalendarClock size={18} color={C.amber} />
+          <span style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15 }}>Tu próximo mantenimiento</span>
+        </div>
+        <div style={{ fontSize: 22, fontFamily: fontDisplay, fontWeight: 800 }}>{next.tipo.nombre}</div>
+        <div className="flex items-center" style={{ gap: 20, marginTop: 12, flexWrap: "wrap" }}>
+          <div><div style={{ fontSize: 11.5, color: C.textFaint }}>Faltan</div><div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: next.rem > 0 ? C.green : C.red }}>{next.rem > 0 ? `${num(next.rem)} km` : "Vencido"}</div></div>
+          <div><div style={{ fontSize: 11.5, color: C.textFaint }}>Fecha estimada</div><div style={{ fontSize: 18, fontWeight: 700 }}>{next.diasRest > 0 ? fmtFecha(next.fecha) : "Ya"}</div></div>
+          <div><div style={{ fontSize: 11.5, color: C.textFaint }}>Tu promedio</div><div className="tnum" style={{ fontSize: 18, fontWeight: 700 }}>{num(prom)} km/día</div></div>
+        </div>
+      </div>
+
+      {/* Acciones del conductor */}
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, animationDelay: "120ms" }}>
+          <div className="flex items-center" style={{ gap: 8, marginBottom: 12 }}><Gauge size={17} color={C.teal} /><span style={{ fontWeight: 600, fontSize: 14 }}>Reportar kilometraje</span></div>
+          <input type="number" value={km} onChange={(e) => setKm(e.target.value)}
+            style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px 13px", color: C.text, fontSize: 18, fontFamily: fontDisplay, fontWeight: 700 }} />
+          <button disabled={!cambio} onClick={() => onUpdateKm(truck.id, +km)}
+            style={{ width: "100%", marginTop: 11, background: cambio ? C.teal : C.surface2, color: cambio ? "#04120C" : C.textFaint, border: "none", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: cambio ? "pointer" : "not-allowed", fontFamily: fontBody }}>
+            Actualizar km
+          </button>
+        </div>
+        <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, animationDelay: "160ms", display: "flex", flexDirection: "column" }}>
+          <div className="flex items-center" style={{ gap: 8, marginBottom: 12 }}><Fuel size={17} color={C.amber} /><span style={{ fontWeight: 600, fontSize: 14 }}>Cargué combustible</span></div>
+          <p style={{ fontSize: 12.5, color: C.textMut, margin: "0 0 14px", flex: 1 }}>Registra galones, precio y odómetro después de cada grifo.</p>
+          <button onClick={onFuel} className="flex items-center" style={{ justifyContent: "center", gap: 7, background: C.amber, color: "#1A1200", border: "none", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: fontBody }}>
+            <Plus size={16} strokeWidth={2.6} /> Registrar abastecimiento
+          </button>
         </div>
       </div>
     </div>
