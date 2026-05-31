@@ -32,7 +32,8 @@ import React, { useState, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Truck, Wrench, Fuel, LayoutDashboard, AlertTriangle, CheckCircle2,
-  Gauge, TrendingUp, Plus, X, Droplet, Activity, CircleDollarSign
+  Gauge, TrendingUp, Plus, X, Droplet, Activity, CircleDollarSign,
+  CircleDot, Ruler, BadgeDollarSign
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
@@ -94,6 +95,22 @@ const FUEL_INI = [
   { id: 14, fecha: "2026-05-29", truckId: 5, galones: 77, precio: 15.9, km: 198300, kmAnt: 197700 },
 ];
 
+// kmInst = odómetro al instalar · prof en mm · limite = mm mínimo para cambio
+const LLANTAS_INI = [
+  { id: 1,  truckId: 1, marca: "Michelin",  modelo: "X Multi Z", pos: "Dirección Izq", costo: 2600, kmInst: 14200, profNueva: 16, profActual: 12.4, limite: 4 },
+  { id: 2,  truckId: 1, marca: "Michelin",  modelo: "X Multi Z", pos: "Dirección Der", costo: 2600, kmInst: 14200, profNueva: 16, profActual: 12.1, limite: 4 },
+  { id: 3,  truckId: 3, marca: "Bridgestone", modelo: "R268",    pos: "Tracción I-2",  costo: 2300, kmInst: 60400, profNueva: 20, profActual: 12.3, limite: 4 },
+  { id: 4,  truckId: 3, marca: "Bridgestone", modelo: "R268",    pos: "Tracción D-2",  costo: 2300, kmInst: 60400, profNueva: 20, profActual: 11.8, limite: 4 },
+  { id: 5,  truckId: 5, marca: "Aeolus",    modelo: "HN08",      pos: "Tracción I-3",  costo: 1300, kmInst: 160300, profNueva: 18, profActual: 8.2, limite: 4 },
+  { id: 6,  truckId: 5, marca: "Aeolus",    modelo: "HN257",     pos: "Dirección Der", costo: 1300, kmInst: 160300, profNueva: 16, profActual: 8.8, limite: 4 },
+  { id: 7,  truckId: 4, marca: "Genérica China", modelo: "Económica", pos: "Tracción I-2", costo: 650, kmInst: 51800, profNueva: 16, profActual: 5.1, limite: 4 },
+  { id: 8,  truckId: 4, marca: "Genérica China", modelo: "Económica", pos: "Tracción D-2", costo: 650, kmInst: 51800, profNueva: 16, profActual: 4.3, limite: 4 },
+  { id: 9,  truckId: 6, marca: "Michelin",  modelo: "X Line",    pos: "Dirección Izq", costo: 2800, kmInst: 181500, profNueva: 16, profActual: 9.0, limite: 4 },
+  { id: 10, truckId: 8, marca: "Aeolus",    modelo: "HN08",      pos: "Tracción D-2",  costo: 1300, kmInst: 51400, profNueva: 16, profActual: 10.4, limite: 4 },
+  { id: 11, truckId: 2, marca: "Bridgestone", modelo: "M840",    pos: "Tracción I-2",  costo: 2300, kmInst: 23600, profNueva: 18, profActual: 14.2, limite: 4 },
+  { id: 12, truckId: 7, marca: "Genérica China", modelo: "Económica", pos: "Dirección Izq", costo: 650, kmInst: 65100, profNueva: 16, profActual: 3.7, limite: 4 },
+];
+
 /* ============================ HELPERS ============================ */
 const soles = (n) => "S/ " + n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (n) => n.toLocaleString("es-PE");
@@ -105,11 +122,29 @@ function servStatus(tipo, desdeKm) {
 }
 const estadoColor = (e) => e === "Operativo" ? C.green : e === "Mantenimiento" ? C.amber : C.red;
 
+function tireMetrics(t, truckKm) {
+  const recorridos = Math.max(1, truckKm - t.kmInst);
+  const usableNuevo = t.profNueva - t.limite;
+  const usado = Math.max(0.1, t.profNueva - t.profActual);
+  const kmPorMm = recorridos / usado;
+  const vidaTotal = kmPorMm * usableNuevo;
+  const kmRestante = Math.max(0, vidaTotal - recorridos);
+  const desgastePct = Math.min(100, (usado / usableNuevo) * 100);
+  const costoKm = t.costo / vidaTotal;
+  return { recorridos, vidaTotal, kmRestante, desgastePct, costoKm };
+}
+function tireStatus(t) {
+  if (t.profActual <= t.limite) return { estado: "Cambiar ya", color: C.red };
+  if (t.profActual <= t.limite + 2) return { estado: "Próximo cambio", color: C.amber };
+  return { estado: "Operativa", color: C.green };
+}
+
 /* ============================ APP ============================ */
 function App() {
   const [tab, setTab] = useState("dashboard");
   const [flota, setFlota] = useState(FLOTA_INI);
   const [fuel, setFuel] = useState(FUEL_INI);
+  const [llantas] = useState(LLANTAS_INI);
   const [fuelModal, setFuelModal] = useState(false);
   const [selTruck, setSelTruck] = useState(null);
 
@@ -163,6 +198,7 @@ function App() {
     { key: "flota", label: "Flota", icon: Truck },
     { key: "mant", label: "Mantenimiento", icon: Wrench },
     { key: "comb", label: "Combustible", icon: Fuel },
+    { key: "llantas", label: "Llantas", icon: CircleDot },
   ];
 
   return (
@@ -191,7 +227,7 @@ function App() {
                 FLOTA<span style={{ color: C.green }}>VIDA</span>
               </div>
               <div style={{ fontSize: 11.5, color: C.textMut, letterSpacing: ".3px" }}>
-                Gestión de mantenimiento y combustible · Transvida Perú
+                Gestión de mantenimiento, combustible y llantas · Transvida Perú
               </div>
             </div>
           </div>
@@ -227,6 +263,7 @@ function App() {
         {tab === "flota" && <Flota flota={flota} onSel={setSelTruck} />}
         {tab === "mant" && <Mantenimiento flota={flota} onReg={registrarServicio} />}
         {tab === "comb" && <Combustible fuel={fuel} flota={flota} stats={stats} />}
+        {tab === "llantas" && <Llantas flota={flota} llantas={llantas} />}
       </main>
 
       {fuelModal && <FuelModal flota={flota} onClose={() => setFuelModal(false)} onSave={addFuel} />}
@@ -443,6 +480,145 @@ function Combustible({ fuel, flota, stats }) {
                     <td className="tnum" style={{ padding: "10px", textAlign: "right", fontWeight: 600 }}>{soles(f.galones * f.precio)}</td>
                     <td className="tnum" style={{ padding: "10px", textAlign: "right", color: C.textMut }}>{num(f.km)}</td>
                     <td className="tnum" style={{ padding: "10px", textAlign: "right", color: rend < 8 ? C.amber : C.green, fontWeight: 600 }}>{rend.toFixed(1)} km/gal</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================ LLANTAS ============================ */
+function Llantas({ flota, llantas }) {
+  const km = (id) => flota.find((t) => t.id === id)?.km ?? 0;
+  const placa = (id) => flota.find((t) => t.id === id)?.placa ?? "—";
+
+  const rows = llantas.map((t) => ({ ...t, ...tireMetrics(t, km(t.truckId)), ...tireStatus(t) }))
+    .sort((a, b) => a.profActual - b.profActual);
+
+  const porCambiar = rows.filter((r) => r.estado !== "Operativa").length;
+  const costoKmProm = rows.reduce((a, r) => a + r.costoKm, 0) / rows.length;
+  const vidaProm = rows.reduce((a, r) => a + r.vidaTotal, 0) / rows.length;
+
+  const marcaMap = {};
+  rows.forEach((r) => {
+    if (!marcaMap[r.marca]) marcaMap[r.marca] = { marca: r.marca, n: 0, compra: 0, vida: 0, ckm: 0 };
+    const g = marcaMap[r.marca]; g.n++; g.compra += r.costo; g.vida += r.vidaTotal; g.ckm += r.costoKm;
+  });
+  const marcas = Object.values(marcaMap)
+    .map((g) => ({ marca: g.marca, n: g.n, compra: g.compra / g.n, vida: g.vida / g.n, ckm: g.ckm / g.n }))
+    .sort((a, b) => a.ckm - b.ckm);
+  const mejor = marcas[0];
+  const barata = [...marcas].sort((a, b) => a.compra - b.compra)[0];
+  const peorKm = marcas[marcas.length - 1];
+
+  return (
+    <div>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px,1fr))", gap: 13, marginBottom: 20 }}>
+        <Kpi icon={CircleDot} label="Llantas monitoreadas" value={rows.length} sub="en toda la flota" accent={C.teal} delay={0} />
+        <Kpi icon={AlertTriangle} label="Por cambiar" value={porCambiar} sub="al límite o próximas" accent={C.red} delay={50} />
+        <Kpi icon={BadgeDollarSign} label="Costo/km promedio" value={soles(costoKmProm)} sub="por llanta · flota" accent={C.amber} delay={100} />
+        <Kpi icon={Gauge} label="Vida promedio" value={`${Math.round(vidaProm / 1000)}k km`} sub="duración estimada" accent={C.green} delay={150} />
+      </div>
+
+      {/* Insight costo/km */}
+      <div className="rise" style={{ background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, marginBottom: 18, animationDelay: "160ms" }}>
+        <div className="flex items-center" style={{ gap: 9, marginBottom: 12 }}>
+          <BadgeDollarSign size={18} color={C.amber} />
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>El precio barato engaña: lo que importa es el costo por km</h3>
+        </div>
+        <p style={{ fontSize: 13.5, color: C.textMut, lineHeight: 1.6, margin: 0 }}>
+          La <b style={{ color: C.text }}>{barata.marca}</b> es la más barata de comprar ({soles(barata.compra)} c/u), pero rinde
+          <b style={{ color: C.red }}> {soles(peorKm.ckm)}/km</b> — la más cara de operar.
+          La <b style={{ color: C.text }}>{mejor.marca}</b> cuesta más al comprar pero rinde solo
+          <b style={{ color: C.green }}> {soles(mejor.ckm)}/km</b>. En una flota de {flota.length} camiones, esa diferencia se multiplica por miles de km al mes.
+        </p>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+        {/* Chart costo/km por marca */}
+        <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, animationDelay: "200ms" }}>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Costo por km según marca</h3>
+          <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>menor es mejor · soles por km</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={marcas} layout="vertical" margin={{ left: 8, right: 18 }}>
+              <CartesianGrid horizontal={false} stroke={C.borderSoft} />
+              <XAxis type="number" stroke={C.textFaint} fontSize={11} tickFormatter={(v) => v.toFixed(3)} />
+              <YAxis type="category" dataKey="marca" stroke={C.textMut} fontSize={10.5} width={92} />
+              <Tooltip cursor={{ fill: `${C.amber}10` }} contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => [soles(v) + "/km", "Costo"]} />
+              <Bar dataKey="ckm" radius={[0, 5, 5, 0]}>
+                {marcas.map((m, i) => <Cell key={i} fill={i === 0 ? C.green : i === marcas.length - 1 ? C.red : C.amber} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Tabla comparativa por marca */}
+        <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, animationDelay: "240ms" }}>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Compra vs operación</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ color: C.textMut, fontSize: 11 }}>
+                {["Marca", "Compra", "Vida est.", "S/ por km"].map((h, i) => (
+                  <th key={h} style={{ padding: "7px 8px", fontWeight: 600, textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {marcas.map((m, i) => (
+                <tr key={m.marca} style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+                  <td style={{ padding: "10px 8px", fontWeight: 600 }}>{m.marca}</td>
+                  <td className="tnum" style={{ padding: "10px 8px", textAlign: "right", color: C.textMut }}>{soles(m.compra)}</td>
+                  <td className="tnum" style={{ padding: "10px 8px", textAlign: "right", color: C.textMut }}>{Math.round(m.vida / 1000)}k km</td>
+                  <td className="tnum" style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: i === 0 ? C.green : i === marcas.length - 1 ? C.red : C.text }}>{soles(m.ckm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Detalle por llanta */}
+      <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, animationDelay: "280ms" }}>
+        <div className="flex items-center" style={{ gap: 9, marginBottom: 16 }}>
+          <Ruler size={18} color={C.teal} />
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Inventario de llantas · profundidad de cocada</h3>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ color: C.textMut, fontSize: 11, textAlign: "left" }}>
+                {["Unidad", "Posición", "Marca", "Cocada (mm)", "Desgaste", "Recorrido", "Restante", "S/ por km", "Estado"].map((h, i) => (
+                  <th key={h} style={{ padding: "8px 9px", fontWeight: 600, textAlign: i >= 4 && i <= 7 ? "right" : "left", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const fill = Math.max(6, ((r.profActual - r.limite) / (r.profNueva - r.limite)) * 100);
+                return (
+                  <tr key={r.id} style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+                    <td style={{ padding: "10px 9px", fontWeight: 600, fontFamily: fontDisplay }}>{placa(r.truckId)}</td>
+                    <td style={{ padding: "10px 9px", color: C.textMut, whiteSpace: "nowrap" }}>{r.pos}</td>
+                    <td style={{ padding: "10px 9px" }}>{r.marca}<div style={{ fontSize: 11, color: C.textFaint }}>{r.modelo}</div></td>
+                    <td style={{ padding: "10px 9px", minWidth: 120 }}>
+                      <div className="flex items-center" style={{ gap: 8 }}>
+                        <span className="tnum" style={{ fontWeight: 600, color: r.color, minWidth: 34 }}>{r.profActual.toFixed(1)}</span>
+                        <div style={{ flex: 1, height: 5, background: C.bg, borderRadius: 99, overflow: "hidden", minWidth: 50 }}>
+                          <div style={{ width: `${fill}%`, height: "100%", background: r.color, borderRadius: 99 }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="tnum" style={{ padding: "10px 9px", textAlign: "right", color: C.textMut }}>{Math.round(r.desgastePct)}%</td>
+                    <td className="tnum" style={{ padding: "10px 9px", textAlign: "right", color: C.textMut }}>{num(Math.round(r.recorridos))}</td>
+                    <td className="tnum" style={{ padding: "10px 9px", textAlign: "right", color: C.textMut }}>{num(Math.round(r.kmRestante))}</td>
+                    <td className="tnum" style={{ padding: "10px 9px", textAlign: "right", fontWeight: 600 }}>{soles(r.costoKm)}</td>
+                    <td style={{ padding: "10px 9px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: r.color, background: `${r.color}1A`, padding: "3px 8px", borderRadius: 6, whiteSpace: "nowrap" }}>{r.estado}</span>
+                    </td>
                   </tr>
                 );
               })}
