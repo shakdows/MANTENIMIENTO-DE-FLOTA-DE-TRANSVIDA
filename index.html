@@ -141,6 +141,51 @@ function tireStatus(t) {
   return { estado: "Operativa", color: C.green };
 }
 
+const fmtFechaLarga = (d) => `${d.getDate()} ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][d.getMonth()]} del ${d.getFullYear()}`;
+
+// Proyección de desgaste por TIEMPO: mm/día, % gastado, días restantes y fechas
+function tireWear(t, truckKm, kmDia) {
+  const kmDiaSeguro = Math.max(20, kmDia || 80);
+  const recorridos = Math.max(1, truckKm - t.kmInst);
+  const diasUso = Math.max(1, Math.round(recorridos / kmDiaSeguro));
+  const usableNuevo = t.profNueva - t.limite;          // mm útiles totales
+  const usado = Math.max(0.1, t.profNueva - t.profActual); // mm ya gastados
+  const mmDia = usado / diasUso;                        // ritmo de desgaste
+  const pctGastado = Math.min(100, (usado / usableNuevo) * 100);
+
+  const restRevision = t.profActual - (t.limite + 2);  // hasta "próximo cambio"
+  const restCambio = t.profActual - t.limite;          // hasta "cambiar ya"
+  const diasRevision = Math.max(0, Math.round(restRevision / mmDia));
+  const diasCambio = Math.max(0, Math.round(restCambio / mmDia));
+
+  const hoy = new Date("2026-05-31");
+  const fechaRevision = new Date(hoy); fechaRevision.setDate(hoy.getDate() + diasRevision);
+  const fechaCambio = new Date(hoy); fechaCambio.setDate(hoy.getDate() + diasCambio);
+  const fechaInst = new Date(hoy); fechaInst.setDate(hoy.getDate() - diasUso);
+
+  // Serie de cocada en el tiempo: historia (real) + proyección (punteada) hasta el límite
+  const histPts = 10;
+  const serie = [];
+  for (let i = 0; i <= histPts; i++) {
+    const d = new Date(fechaInst); d.setDate(fechaInst.getDate() + Math.round((diasUso * i) / histPts));
+    const frac = i / histPts;
+    const wobble = Math.sin(t.id * 7.7 + i * 2.3) * 0.12;
+    const mm = +(t.profNueva - usado * frac + wobble).toFixed(1);
+    serie.push({ fecha: fmtFecha(d), real: Math.max(t.profActual, mm), proy: null });
+  }
+  serie[serie.length - 1].real = t.profActual;
+  serie[serie.length - 1].proy = t.profActual;
+  const pasos = Math.min(Math.max(diasCambio, 1), 30);
+  for (let i = 1; i <= pasos; i++) {
+    const dd = Math.round((diasCambio * i) / pasos);
+    const d = new Date(hoy); d.setDate(hoy.getDate() + dd);
+    serie.push({ fecha: fmtFecha(d), real: null, proy: +Math.max(t.limite, t.profActual - mmDia * dd).toFixed(1) });
+  }
+
+  return { recorridos, diasUso, mmDia, pctGastado, diasRevision, diasCambio,
+           fechaRevision, fechaCambio, fechaInst, serie, usado, usableNuevo };
+}
+
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Set","Oct","Nov","Dic"];
 const fmtFecha = (d) => `${d.getDate()} ${MESES[d.getMonth()]}`;
 
@@ -757,9 +802,15 @@ function Combustible({ fuel, flota }) {
 function Llantas({ flota, llantas }) {
   const km = (id) => flota.find((t) => t.id === id)?.km ?? 0;
   const placa = (id) => flota.find((t) => t.id === id)?.placa ?? "—";
+  const kmDiaDe = (id) => { const t = flota.find((x) => x.id === id); return t ? serieDiaria(t).prom : 80; };
 
   const rows = llantas.map((t) => ({ ...t, ...tireMetrics(t, km(t.truckId)), ...tireStatus(t) }))
     .sort((a, b) => a.profActual - b.profActual);
+
+  const [selLlanta, setSelLlanta] = useState(rows[0].id);
+  const sel = llantas.find((l) => l.id === selLlanta) || llantas[0];
+  const selStatus = tireStatus(sel);
+  const w = tireWear(sel, km(sel.truckId), kmDiaDe(sel.truckId));
 
   const porCambiar = rows.filter((r) => r.estado !== "Operativa").length;
   const costoKmProm = rows.reduce((a, r) => a + r.costoKm, 0) / rows.length;
@@ -798,6 +849,69 @@ function Llantas({ flota, llantas }) {
           La <b style={{ color: C.text }}>{mejor.marca}</b> cuesta más al comprar pero rinde solo
           <b style={{ color: C.green }}> {soles(mejor.ckm)}/km</b>. En una flota de {flota.length} camiones, esa diferencia se multiplica por miles de km al mes.
         </p>
+      </div>
+
+      {/* PROYECCIÓN DE DESGASTE POR LLANTA */}
+      <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, marginBottom: 18, animationDelay: "175ms" }}>
+        <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 10 }}>
+          <div className="flex items-center" style={{ gap: 9 }}>
+            <Ruler size={18} color={C.teal} />
+            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Proyección de desgaste · ¿cuándo revisar?</h3>
+          </div>
+          <select value={selLlanta} onChange={(e) => setSelLlanta(+e.target.value)}
+            style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", color: C.text, fontSize: 13, fontFamily: fontBody, cursor: "pointer", maxWidth: 280 }}>
+            {rows.map((r) => <option key={r.id} value={r.id} style={{ background: C.surface }}>{placa(r.truckId)} · {r.pos} · {r.marca}</option>)}
+          </select>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 16 }}>
+          mide la cocada (mm) con galga y la app calcula el ritmo de desgaste y la fecha de revisión
+        </div>
+
+        {/* métricas de desgaste */}
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px,1fr))", gap: 11, marginBottom: 16 }}>
+          {[
+            ["Desgaste actual", `${Math.round(w.pctGastado)}%`, `${w.usado.toFixed(1)} de ${w.usableNuevo.toFixed(0)} mm útiles`, selStatus.color],
+            ["Ritmo de desgaste", `${w.mmDia.toFixed(3)} mm/día`, `en ${w.diasUso} días de uso`, C.teal],
+            ["Cocada actual", `${sel.profActual.toFixed(1)} mm`, `límite de cambio: ${sel.limite} mm`, C.blue],
+            ["Días hasta el límite", w.diasCambio > 0 ? `${w.diasCambio} días` : "0 días", "al ritmo actual", w.diasCambio > 7 ? C.green : C.red],
+          ].map(([l, v, s, c], i) => (
+            <div key={i} style={{ background: C.bg, borderRadius: 11, padding: "13px 14px", border: `1px solid ${C.borderSoft}` }}>
+              <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 7 }}>{l}</div>
+              <div className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 19, color: c }}>{v}</div>
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 4 }}>{s}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* gráfica de cocada en el tiempo */}
+        <ResponsiveContainer width="100%" height={250}>
+          <ComposedChart data={w.serie} margin={{ left: 2, right: 12, top: 8 }}>
+            <CartesianGrid stroke={C.borderSoft} vertical={false} />
+            <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10} interval="preserveStartEnd" minTickGap={26} />
+            <YAxis stroke={C.textFaint} fontSize={11} domain={[0, sel.profNueva]} tickFormatter={(v) => `${v}mm`} width={42} />
+            <Tooltip contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => v != null ? [`${v} mm`] : null} />
+            <ReferenceLine y={sel.limite + 2} stroke={C.amber} strokeDasharray="5 4" label={{ value: "revisión", position: "insideTopRight", fill: C.amber, fontSize: 10 }} />
+            <ReferenceLine y={sel.limite} stroke={C.red} strokeDasharray="5 4" label={{ value: "cambio", position: "insideBottomRight", fill: C.red, fontSize: 10 }} />
+            <Area type="monotone" dataKey="real" name="Cocada real" stroke={C.green} strokeWidth={2.4} fill={`${C.green}1E`} connectNulls={false} dot={false} />
+            <Line type="monotone" dataKey="proy" name="Proyección" stroke={C.amber} strokeWidth={2.2} strokeDasharray="5 4" connectNulls dot={false} />
+            <Legend wrapperStyle={{ fontSize: 11.5, color: C.textMut }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+
+        {/* recomendación en lenguaje claro */}
+        <div style={{ marginTop: 14, padding: "14px 16px", background: `${selStatus.color}12`, border: `1px solid ${selStatus.color}33`, borderRadius: 11, fontSize: 13.5, color: C.text, lineHeight: 1.6 }}>
+          <div className="flex items-center" style={{ gap: 8, marginBottom: 6 }}>
+            <CalendarClock size={16} color={selStatus.color} />
+            <b style={{ fontFamily: fontDisplay }}>Recomendación</b>
+          </div>
+          Esta llanta ({placa(sel.truckId)} · {sel.pos}) se ha gastado un <b style={{ color: selStatus.color }}>{Math.round(w.pctGastado)}%</b> en <b>{w.diasUso} días</b>, a un ritmo de <b>{w.mmDia.toFixed(3)} mm/día</b>.
+          {" "}
+          {w.diasRevision > 0 ? (
+            <>Lo que le queda se agota en ~<b>{w.diasCambio} días</b>, por lo que se debe hacer una <b style={{ color: C.amber }}>revisión el {fmtFechaLarga(w.fechaRevision)}</b> y prever el <b style={{ color: C.red }}>cambio hacia el {fmtFechaLarga(w.fechaCambio)}</b>.</>
+          ) : (
+            <>Ya alcanzó el umbral de revisión: <b style={{ color: C.red }}>debe revisarse de inmediato</b> y cambiarse a más tardar el <b>{fmtFechaLarga(w.fechaCambio)}</b>.</>
+          )}
+        </div>
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
@@ -861,9 +975,11 @@ function Llantas({ flota, llantas }) {
             <tbody>
               {rows.map((r) => {
                 const fill = Math.max(6, ((r.profActual - r.limite) / (r.profNueva - r.limite)) * 100);
+                const activa = r.id === selLlanta;
                 return (
-                  <tr key={r.id} style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
-                    <td style={{ padding: "10px 9px", fontWeight: 600, fontFamily: fontDisplay }}>{placa(r.truckId)}</td>
+                  <tr key={r.id} onClick={() => setSelLlanta(r.id)} className="hov"
+                    style={{ borderBottom: `1px solid ${C.borderSoft}`, cursor: "pointer", background: activa ? `${C.teal}12` : "transparent" }}>
+                    <td style={{ padding: "10px 9px", fontWeight: 600, fontFamily: fontDisplay, borderLeft: `2px solid ${activa ? C.teal : "transparent"}` }}>{placa(r.truckId)}</td>
                     <td style={{ padding: "10px 9px", color: C.textMut, whiteSpace: "nowrap" }}>{r.pos}</td>
                     <td style={{ padding: "10px 9px" }}>{r.marca}<div style={{ fontSize: 11, color: C.textFaint }}>{r.modelo}</div></td>
                     <td style={{ padding: "10px 9px", minWidth: 120 }}>
