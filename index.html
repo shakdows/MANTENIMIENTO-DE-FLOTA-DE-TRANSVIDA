@@ -809,21 +809,35 @@ function Llantas({ flota, llantas }) {
   const km = (id) => flota.find((t) => t.id === id)?.km ?? 0;
   const placa = (id) => flota.find((t) => t.id === id)?.placa ?? "—";
   const kmDiaDe = (id) => { const t = flota.find((x) => x.id === id); return t ? serieDiaria(t).prom : 80; };
+  const PAL = [C.green, C.teal, C.amber, C.blue, C.red, "#A78BFA", "#F472B6", "#FB923C", "#22D3EE", "#FACC15"];
+  const colorDe = (id) => PAL[flota.findIndex((t) => t.id === id) % PAL.length];
 
-  const rows = llantas.map((t) => ({ ...t, ...tireMetrics(t, km(t.truckId)), ...tireStatus(t) }))
+  const [filtroT, setFiltroT] = useState("todos");
+  const rowsAll = llantas.map((t) => ({ ...t, ...tireMetrics(t, km(t.truckId)), ...tireStatus(t) }))
     .sort((a, b) => a.profActual - b.profActual);
+  const esUnidad = filtroT !== "todos";
+  const rows = esUnidad ? rowsAll.filter((r) => r.truckId === +filtroT) : rowsAll;
 
-  const [selLlanta, setSelLlanta] = useState(rows[0].id);
+  const [selLlanta, setSelLlanta] = useState(rowsAll[0].id);
+  const aplicarFiltroT = (val) => {
+    setFiltroT(val);
+    const set = val === "todos" ? rowsAll : rowsAll.filter((r) => r.truckId === +val);
+    if (set[0]) setSelLlanta(set[0].id);
+  };
   const sel = llantas.find((l) => l.id === selLlanta) || llantas[0];
   const selStatus = tireStatus(sel);
   const w = tireWear(sel, km(sel.truckId), kmDiaDe(sel.truckId));
 
-  const porCambiar = rows.filter((r) => r.estado !== "Operativa").length;
-  const costoKmProm = rows.reduce((a, r) => a + r.costoKm, 0) / rows.length;
-  const vidaProm = rows.reduce((a, r) => a + r.vidaTotal, 0) / rows.length;
+  // unidades que tienen llantas (para los botones de filtro)
+  const unidadesConLlantas = flota.filter((t) => llantas.some((l) => l.truckId === t.id));
 
+  const porCambiar = rows.filter((r) => r.estado !== "Operativa").length;
+  const costoKmProm = rows.reduce((a, r) => a + r.costoKm, 0) / (rows.length || 1);
+  const vidaProm = rows.reduce((a, r) => a + r.vidaTotal, 0) / (rows.length || 1);
+
+  // comparación de marcas: siempre a nivel flota (economía de marca)
   const marcaMap = {};
-  rows.forEach((r) => {
+  rowsAll.forEach((r) => {
     if (!marcaMap[r.marca]) marcaMap[r.marca] = { marca: r.marca, n: 0, compra: 0, vida: 0, ckm: 0 };
     const g = marcaMap[r.marca]; g.n++; g.compra += r.costo; g.vida += r.vidaTotal; g.ckm += r.costoKm;
   });
@@ -834,12 +848,45 @@ function Llantas({ flota, llantas }) {
   const barata = [...marcas].sort((a, b) => a.compra - b.compra)[0];
   const peorKm = marcas[marcas.length - 1];
 
+  const chip = (active, accent) => ({
+    padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody,
+    border: `1px solid ${active ? (accent || C.green) : C.border}`,
+    background: active ? `${accent || C.green}1E` : C.surface,
+    color: active ? (accent || C.green) : C.textMut, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7,
+  });
+
   return (
     <div>
+      <div className="flex items-center rise" style={{ gap: 9, marginBottom: 14 }}>
+        <CircleDot size={20} color={C.teal} />
+        <h2 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 18, margin: 0 }}>Llantas</h2>
+        <span style={{ fontSize: 12, color: C.textMut, background: C.surface, border: `1px solid ${C.border}`, padding: "3px 10px", borderRadius: 99 }}>
+          {esUnidad ? `${placa(+filtroT)} · ${rows.length} llantas` : `Flota completa · ${rowsAll.length} llantas`}
+        </span>
+      </div>
+
+      {/* Filtro por camión */}
+      <div className="rise" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+        <button onClick={() => aplicarFiltroT("todos")} style={chip(filtroT === "todos")}>
+          <Truck size={14} /> Todos
+        </button>
+        {unidadesConLlantas.map((t) => (
+          <button key={t.id} onClick={() => aplicarFiltroT(String(t.id))} style={chip(filtroT === String(t.id), colorDe(t.id))}>
+            <span style={{ width: 8, height: 8, borderRadius: 99, background: colorDe(t.id) }} /> {t.placa}
+          </button>
+        ))}
+        {esUnidad && (
+          <button onClick={() => aplicarFiltroT("todos")}
+            style={{ padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody, border: `1px dashed ${C.border}`, background: "transparent", color: C.textFaint, display: "flex", alignItems: "center", gap: 6 }}>
+            <X size={13} /> Restablecer
+          </button>
+        )}
+      </div>
+
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px,1fr))", gap: 13, marginBottom: 20 }}>
-        <Kpi icon={CircleDot} label="Llantas monitoreadas" value={rows.length} sub="en toda la flota" accent={C.teal} delay={0} />
+        <Kpi icon={CircleDot} label="Llantas monitoreadas" value={rows.length} sub={esUnidad ? `en ${placa(+filtroT)}` : "en toda la flota"} accent={C.teal} delay={0} />
         <Kpi icon={AlertTriangle} label="Por cambiar" value={porCambiar} sub="al límite o próximas" accent={C.red} delay={50} />
-        <Kpi icon={BadgeDollarSign} label="Costo/km promedio" value={soles(costoKmProm)} sub="por llanta · flota" accent={C.amber} delay={100} />
+        <Kpi icon={BadgeDollarSign} label="Costo/km promedio" value={soles(costoKmProm)} sub={esUnidad ? "de la unidad" : "por llanta · flota"} accent={C.amber} delay={100} />
         <Kpi icon={Gauge} label="Vida promedio" value={`${Math.round(vidaProm / 1000)}k km`} sub="duración estimada" accent={C.green} delay={150} />
       </div>
 
@@ -864,18 +911,10 @@ function Llantas({ flota, llantas }) {
             <Ruler size={18} color={C.teal} />
             <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Proyección de desgaste · ¿cuándo revisar?</h3>
           </div>
-          <div className="flex items-center" style={{ gap: 8 }}>
-            <select value={selLlanta} onChange={(e) => setSelLlanta(+e.target.value)}
-              style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", color: C.text, fontSize: 13, fontFamily: fontBody, cursor: "pointer", maxWidth: 280 }}>
-              {rows.map((r) => <option key={r.id} value={r.id} style={{ background: C.surface }}>{placa(r.truckId)} · {r.pos} · {r.marca}</option>)}
-            </select>
-            {selLlanta !== rows[0].id && (
-              <button onClick={() => setSelLlanta(rows[0].id)} title="Volver a la llanta prioritaria"
-                style={{ padding: "8px 12px", borderRadius: 10, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody, border: `1px dashed ${C.border}`, background: "transparent", color: C.textFaint, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                <X size={13} /> Restablecer
-              </button>
-            )}
-          </div>
+          <select value={selLlanta} onChange={(e) => setSelLlanta(+e.target.value)}
+            style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", color: C.text, fontSize: 13, fontFamily: fontBody, cursor: "pointer", maxWidth: 280 }}>
+            {rows.map((r) => <option key={r.id} value={r.id} style={{ background: C.surface }}>{placa(r.truckId)} · {r.pos} · {r.marca}</option>)}
+          </select>
         </div>
         <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 16 }}>
           mide la cocada (mm) con galga y la app calcula el ritmo de desgaste y la fecha de revisión
@@ -975,7 +1014,7 @@ function Llantas({ flota, llantas }) {
       <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, animationDelay: "280ms" }}>
         <div className="flex items-center" style={{ gap: 9, marginBottom: 16 }}>
           <Ruler size={18} color={C.teal} />
-          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Inventario de llantas · profundidad de cocada</h3>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Inventario de llantas · profundidad de cocada{esUnidad ? ` · ${placa(+filtroT)}` : ""}</h3>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
