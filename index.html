@@ -113,6 +113,33 @@ const LLANTAS_INI = [
   { id: 12, truckId: 7, marca: "Genérica China", modelo: "Económica", pos: "Dirección Izq", costo: 650, kmInst: 65100, profNueva: 16, profActual: 3.7, limite: 4 },
 ];
 
+// Equipamiento obligatorio que debe llevar cada unidad (checklist de inspección)
+const EQUIPO_CATALOGO = [
+  { key: "conos",     nombre: "Conos de seguridad (2)",      icon: AlertTriangle },
+  { key: "triangulo", nombre: "Triángulos reflectivos",      icon: AlertTriangle },
+  { key: "repuesto",  nombre: "Llanta de repuesto",          icon: CircleDot },
+  { key: "extintor",  nombre: "Extintor vigente",            icon: Activity },
+  { key: "botiquin",  nombre: "Botiquín de primeros auxilios", icon: Plus },
+  { key: "gata",      nombre: "Gata / palanca",              icon: Wrench },
+  { key: "llaveR",    nombre: "Llave de ruedas",             icon: Wrench },
+  { key: "tacos",     nombre: "Tacos / cuñas",               icon: CircleDot },
+  { key: "chaleco",   nombre: "Chaleco reflectivo",          icon: User },
+  { key: "linterna",  nombre: "Linterna",                    icon: Activity },
+  { key: "soat",      nombre: "SOAT vigente",                icon: ClipboardList },
+  { key: "revtec",    nombre: "Revisión técnica vigente",    icon: ClipboardList },
+];
+// estado inicial por camión: true = presente, false = falta (demo)
+const EQUIPO_INI = {
+  1: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: false, soat: true, revtec: true },
+  2: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: false, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
+  3: { conos: true, triangulo: false, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: false, chaleco: true, linterna: true, soat: true, revtec: true },
+  4: { conos: false, triangulo: true, repuesto: true, extintor: false, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: false },
+  5: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
+  6: { conos: true, triangulo: true, repuesto: false, extintor: true, botiquin: true, gata: false, llaveR: true, tacos: true, chaleco: false, linterna: true, soat: true, revtec: false },
+  7: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: false, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
+  8: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
+};
+
 /* ============================ HELPERS ============================ */
 const soles = (n) => "S/ " + n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (n) => n.toLocaleString("es-PE");
@@ -1292,6 +1319,14 @@ function TruckModal({ truck, fuel, onClose }) {
   const costoTot = logs.reduce((a, f) => a + f.galones * f.precio, 0);
   const kmTot = logs.reduce((a, f) => a + (f.km - f.kmAnt), 0);
   const rend = galTot ? kmTot / galTot : 0;
+
+  const [equipo, setEquipo] = useState(() => ({ ...(EQUIPO_INI[truck.id] || {}) }));
+  const toggle = (k) => setEquipo((e) => ({ ...e, [k]: !e[k] }));
+  const presentes = EQUIPO_CATALOGO.filter((it) => equipo[it.key]).length;
+  const total = EQUIPO_CATALOGO.length;
+  const faltan = total - presentes;
+  const okColor = faltan === 0 ? C.green : faltan <= 2 ? C.amber : C.red;
+
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 6 }}>
@@ -1317,18 +1352,32 @@ function TruckModal({ truck, fuel, onClose }) {
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 12.5, color: C.textMut, fontWeight: 600, marginBottom: 10 }}>Estado de mantenimiento</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {MANT_TIPOS.map((tp) => {
-          const s = servStatus(tp, truck.desde[tp.key]);
+
+      <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontSize: 12.5, color: C.textMut, fontWeight: 600 }}>Equipamiento obligatorio</span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: okColor, background: `${okColor}1A`, padding: "3px 9px", borderRadius: 7 }}>
+          {presentes}/{total} {faltan === 0 ? "· completo" : `· faltan ${faltan}`}
+        </span>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+        {EQUIPO_CATALOGO.map((it) => {
+          const ok = !!equipo[it.key];
           return (
-            <div key={tp.key} className="flex items-center" style={{ justifyContent: "space-between", fontSize: 13 }}>
-              <span className="flex items-center" style={{ gap: 9 }}><tp.icon size={14} color={s.color} /> {tp.nombre}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: `${s.color}1A`, padding: "3px 8px", borderRadius: 6 }}>{s.estado}</span>
-            </div>
+            <button key={it.key} onClick={() => toggle(it.key)} className="flex items-center"
+              style={{ gap: 9, justifyContent: "space-between", textAlign: "left", padding: "9px 11px", borderRadius: 9, cursor: "pointer", fontFamily: fontBody,
+                background: ok ? `${C.green}10` : `${C.red}10`, border: `1px solid ${ok ? `${C.green}33` : `${C.red}33`}`, color: C.text }}>
+              <span className="flex items-center" style={{ gap: 8, fontSize: 12.5, minWidth: 0 }}>
+                <it.icon size={14} color={ok ? C.green : C.red} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.nombre}</span>
+              </span>
+              {ok
+                ? <CheckCircle2 size={16} color={C.green} style={{ flexShrink: 0 }} />
+                : <X size={16} color={C.red} style={{ flexShrink: 0 }} />}
+            </button>
           );
         })}
       </div>
+      <div style={{ fontSize: 11, color: C.textFaint, marginTop: 10, textAlign: "center" }}>Toca un ítem para marcarlo como presente o faltante</div>
     </Overlay>
   );
 }
