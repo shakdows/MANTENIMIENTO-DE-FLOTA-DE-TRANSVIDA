@@ -352,7 +352,7 @@ function App() {
         {tab === "dashboard" && <Dashboard stats={stats} alertas={alertas} fuelData={fuelPorCamion} />}
         {tab === "flota" && <Flota flota={flota} onSel={setSelTruck} />}
         {tab === "mant" && <Mantenimiento flota={flota} onReg={registrarServicio} />}
-        {tab === "comb" && <Combustible fuel={fuel} flota={flota} stats={stats} />}
+        {tab === "comb" && <Combustible fuel={fuel} flota={flota} />}
         {tab === "llantas" && <Llantas flota={flota} llantas={llantas} />}
         {tab === "proy" && <Proyeccion flota={flota} fuel={fuel} />}
         {tab === "miunidad" && (
@@ -540,13 +540,16 @@ function Mantenimiento({ flota, onReg }) {
 }
 
 /* ============================ COMBUSTIBLE ============================ */
-function Combustible({ fuel, flota, stats }) {
+function Combustible({ fuel, flota }) {
   const [filtro, setFiltro] = useState("todos");
+  const [metric, setMetric] = useState("rend");
   const placa = (id) => flota.find((t) => t.id === id)?.placa ?? "—";
+  const PAL = [C.green, C.teal, C.amber, C.blue, C.red, "#A78BFA", "#F472B6", "#FB923C", "#22D3EE", "#FACC15"];
+  const colorDe = (id) => PAL[flota.findIndex((t) => t.id === id) % PAL.length];
 
-  const conRend = (arr) => arr.map((f) => ({ ...f, rend: (f.km - f.kmAnt) / f.galones, costo: f.galones * f.precio }));
-  const todos = conRend(fuel);
-  const filtrados = filtro === "todos" ? todos : todos.filter((f) => f.truckId === +filtro);
+  const todos = fuel.map((f) => ({ ...f, rend: +((f.km - f.kmAnt) / f.galones).toFixed(1), costo: +(f.galones * f.precio).toFixed(2) }));
+  const esUnidad = filtro !== "todos";
+  const filtrados = esUnidad ? todos.filter((f) => f.truckId === +filtro) : todos;
   const logs = [...filtrados].sort((a, b) => b.fecha.localeCompare(a.fecha));
 
   // KPIs según filtro
@@ -556,39 +559,47 @@ function Combustible({ fuel, flota, stats }) {
   const kmTot = filtrados.reduce((a, f) => a + (f.km - f.kmAnt), 0);
   const rendProm = galMes ? kmTot / galMes : 0;
 
-  // Datos para gráficos
-  const esUnidad = filtro !== "todos";
-  const serieUnidad = [...filtrados].sort((a, b) => a.fecha.localeCompare(b.fecha))
-    .map((f) => ({ fecha: f.fecha.slice(5).replace("-", "/"), costo: +f.costo.toFixed(2), galones: f.galones, rend: +f.rend.toFixed(1), km: f.km }));
-  const porUnidad = (() => {
-    const m = {};
-    todos.forEach((f) => {
-      const p = placa(f.truckId);
-      if (!m[p]) m[p] = { placa: p, costo: 0, gal: 0, km: 0 };
-      m[p].costo += f.costo; m[p].gal += f.galones; m[p].km += (f.km - f.kmAnt);
-    });
-    return Object.values(m).map((u) => ({ ...u, rend: u.gal ? +(u.km / u.gal).toFixed(1) : 0 }))
-      .sort((a, b) => b.costo - a.costo);
-  })();
+  // Cuadro general: una fila por fecha, una columna por unidad
+  const METR = { rend: { key: "rend", label: "Rendimiento", unidad: "km/gal", fmt: (v) => `${v} km/gal` },
+                 costo: { key: "costo", label: "Costo", unidad: "S/", fmt: (v) => soles(v) },
+                 galones: { key: "galones", label: "Galones", unidad: "gal", fmt: (v) => `${v} gal` } };
+  const mc = METR[metric];
+  const fechas = [...new Set(todos.map((f) => f.fecha))].sort();
+  const serieGeneral = fechas.map((fe) => {
+    const row = { fecha: fe.slice(5).replace("-", "/") };
+    todos.filter((f) => f.fecha === fe).forEach((f) => { row[placa(f.truckId)] = f[mc.key]; });
+    return row;
+  });
 
-  const selStyle = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "9px 13px", color: C.text, fontSize: 13.5, fontFamily: fontBody, cursor: "pointer" };
+  // Detalle por unidad
+  const serieUnidad = [...filtrados].sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .map((f) => ({ fecha: f.fecha.slice(5).replace("-", "/"), costo: f.costo, galones: f.galones, rend: f.rend }));
+
   const card = (delay) => ({ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20, animationDelay: `${delay}ms` });
+  const chip = (active, accent) => ({
+    padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody,
+    border: `1px solid ${active ? (accent || C.green) : C.border}`,
+    background: active ? `${accent || C.green}1E` : C.surface,
+    color: active ? (accent || C.green) : C.textMut, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7,
+  });
 
   return (
     <div>
-      {/* Barra de filtro */}
-      <div className="flex items-center rise" style={{ justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
-        <div className="flex items-center" style={{ gap: 9 }}>
-          <Fuel size={20} color={C.amber} />
-          <h2 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 18, margin: 0 }}>Combustible</h2>
-          <span style={{ fontSize: 12, color: C.textMut, background: C.surface, border: `1px solid ${C.border}`, padding: "3px 10px", borderRadius: 99 }}>
-            {esUnidad ? placa(+filtro) : `Flota completa · ${flota.length} unidades`}
-          </span>
-        </div>
-        <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={selStyle}>
-          <option value="todos" style={{ background: C.surface }}>Toda la flota</option>
-          {flota.map((t) => <option key={t.id} value={t.id} style={{ background: C.surface }}>{t.placa} · {t.modelo}</option>)}
-        </select>
+      <div className="flex items-center rise" style={{ gap: 9, marginBottom: 14 }}>
+        <Fuel size={20} color={C.amber} />
+        <h2 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 18, margin: 0 }}>Combustible</h2>
+      </div>
+
+      {/* Filtro por botones */}
+      <div className="rise" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        <button onClick={() => setFiltro("todos")} style={chip(filtro === "todos")}>
+          <Truck size={14} /> Toda la flota
+        </button>
+        {flota.map((t) => (
+          <button key={t.id} onClick={() => setFiltro(String(t.id))} style={chip(filtro === String(t.id), colorDe(t.id))}>
+            <span style={{ width: 8, height: 8, borderRadius: 99, background: colorDe(t.id) }} /> {t.placa}
+          </button>
+        ))}
       </div>
 
       {/* KPIs */}
@@ -599,20 +610,87 @@ function Combustible({ fuel, flota, stats }) {
         <Kpi icon={Gauge} label="Rendimiento" value={`${rendProm.toFixed(1)} km/gal`} sub={esUnidad ? "de la unidad" : "promedio flota"} accent={C.blue} delay={150} />
       </div>
 
-      {/* Gráficos */}
-      {esUnidad ? (
-        <div className="grid rise" style={{ gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18, animationDelay: "180ms" }}>
+      {/* CUADRO GENERAL: todas las unidades en una línea */}
+      <div className="rise" style={{ ...card(180), marginBottom: 18 }}>
+        <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 10 }}>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Cuadro general · {mc.label} por unidad</h3>
+          <div style={{ display: "flex", gap: 6 }}>
+            {Object.values(METR).map((m) => (
+              <button key={m.key} onClick={() => setMetric(m.key)} style={chip(metric === m.key, C.teal)}>{m.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 14 }}>
+          cada línea es un camión · {mc.unidad} en el tiempo {esUnidad ? `· resaltando ${placa(+filtro)}` : "· toca un botón para resaltar una unidad"}
+        </div>
+        <ResponsiveContainer width="100%" height={330}>
+          <ComposedChart data={serieGeneral} margin={{ left: 4, right: 12, top: 8 }}>
+            <CartesianGrid stroke={C.borderSoft} vertical={false} />
+            <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10.5} />
+            <YAxis stroke={C.textFaint} fontSize={11} tickFormatter={(v) => metric === "costo" ? `S/${(v / 1000).toFixed(1)}k` : v} width={metric === "costo" ? 46 : 32} domain={metric === "rend" ? [0, "auto"] : ["auto", "auto"]} />
+            <Tooltip contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v, n) => [mc.fmt(v), n]} />
+            <Legend wrapperStyle={{ fontSize: 11, color: C.textMut, paddingTop: 6 }} />
+            {flota.map((t) => {
+              const dim = esUnidad && +filtro !== t.id;
+              const hi = esUnidad && +filtro === t.id;
+              return (
+                <Line key={t.id} type="monotone" dataKey={t.placa} name={t.placa}
+                  stroke={colorDe(t.id)} strokeWidth={hi ? 3.2 : 2} strokeOpacity={dim ? 0.16 : 1}
+                  dot={{ r: hi ? 4 : 3, fill: colorDe(t.id), strokeWidth: 0, fillOpacity: dim ? 0.16 : 1 }}
+                  activeDot={{ r: 5 }} connectNulls />
+              );
+            })}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Comparativas de flota */}
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+        <div className="rise" style={card(220)}>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>Gasto por unidad</h3>
+          <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>mayo 2026 · soles</div>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={flota.map((t) => ({ placa: t.placa, id: t.id, costo: todos.filter((f) => f.truckId === t.id).reduce((a, f) => a + f.costo, 0) })).filter((u) => u.costo > 0).sort((a, b) => b.costo - a.costo)} layout="vertical" margin={{ left: 8, right: 16 }}>
+              <CartesianGrid horizontal={false} stroke={C.borderSoft} />
+              <XAxis type="number" stroke={C.textFaint} fontSize={11} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
+              <YAxis type="category" dataKey="placa" stroke={C.textMut} fontSize={11} width={64} />
+              <Tooltip cursor={{ fill: `${C.green}10` }} contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => [soles(v), "Gasto"]} />
+              <Bar dataKey="costo" radius={[0, 5, 5, 0]} cursor="pointer" onClick={(d) => setFiltro(String(d.id))}>
+                {flota.map((t) => <Cell key={t.id} fill={esUnidad && +filtro !== t.id ? `${colorDe(t.id)}40` : colorDe(t.id)} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="rise" style={card(260)}>
+          <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>Rendimiento por unidad</h3>
+          <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>km/galón · mayor es mejor</div>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={flota.map((t) => { const ls = todos.filter((f) => f.truckId === t.id); const g = ls.reduce((a, f) => a + f.galones, 0); const k = ls.reduce((a, f) => a + (f.km - f.kmAnt), 0); return { placa: t.placa, id: t.id, rend: g ? +(k / g).toFixed(1) : 0 }; }).filter((u) => u.rend > 0).sort((a, b) => b.rend - a.rend)} layout="vertical" margin={{ left: 8, right: 16 }}>
+              <CartesianGrid horizontal={false} stroke={C.borderSoft} />
+              <XAxis type="number" stroke={C.textFaint} fontSize={11} />
+              <YAxis type="category" dataKey="placa" stroke={C.textMut} fontSize={11} width={64} />
+              <Tooltip cursor={{ fill: `${C.teal}10` }} contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => [`${v} km/gal`, "Rendimiento"]} />
+              <Bar dataKey="rend" radius={[0, 5, 5, 0]} cursor="pointer" onClick={(d) => setFiltro(String(d.id))}>
+                {flota.map((t) => <Cell key={t.id} fill={esUnidad && +filtro !== t.id ? `${(todos.filter((f) => f.truckId === t.id).reduce((a, f) => a + (f.km - f.kmAnt), 0) / Math.max(1, todos.filter((f) => f.truckId === t.id).reduce((a, f) => a + f.galones, 0))) < 8 ? C.amber : C.teal}40` : (todos.filter((f) => f.truckId === t.id).reduce((a, f) => a + (f.km - f.kmAnt), 0) / Math.max(1, todos.filter((f) => f.truckId === t.id).reduce((a, f) => a + f.galones, 0))) < 8 ? C.amber : C.teal} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Detalle de la unidad seleccionada */}
+      {esUnidad && (
+        <div className="grid rise" style={{ gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
           <div style={card(0)}>
-            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>Consumo y costo por carga</h3>
+            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>{placa(+filtro)} · consumo y costo</h3>
             <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>barras = costo (S/) · línea = galones</div>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={240}>
               <ComposedChart data={serieUnidad} margin={{ left: 2, right: 6, top: 6 }}>
                 <CartesianGrid stroke={C.borderSoft} vertical={false} />
                 <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10.5} />
                 <YAxis yAxisId="L" stroke={C.amber} fontSize={11} tickFormatter={(v) => `S/${v}`} width={48} />
                 <YAxis yAxisId="R" orientation="right" stroke={C.teal} fontSize={11} width={32} />
-                <Tooltip contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }}
-                  formatter={(v, n) => n === "Costo" ? [soles(v), "Costo"] : [`${v} gal`, "Galones"]} />
+                <Tooltip contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v, n) => n === "Costo" ? [soles(v), "Costo"] : [`${v} gal`, "Galones"]} />
                 <Bar yAxisId="L" dataKey="costo" name="Costo" fill={C.amber} radius={[4, 4, 0, 0]} maxBarSize={32} />
                 <Line yAxisId="R" type="monotone" dataKey="galones" name="Galones" stroke={C.teal} strokeWidth={2.4} dot={{ r: 3, fill: C.teal }} />
                 <Legend wrapperStyle={{ fontSize: 11.5, color: C.textMut }} />
@@ -620,9 +698,9 @@ function Combustible({ fuel, flota, stats }) {
             </ResponsiveContainer>
           </div>
           <div style={card(40)}>
-            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>Rendimiento por carga</h3>
+            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>{placa(+filtro)} · rendimiento por carga</h3>
             <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>km/galón en cada abastecimiento</div>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={240}>
               <ComposedChart data={serieUnidad} margin={{ left: 2, right: 6, top: 6 }}>
                 <CartesianGrid stroke={C.borderSoft} vertical={false} />
                 <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10.5} />
@@ -634,47 +712,13 @@ function Combustible({ fuel, flota, stats }) {
             </ResponsiveContainer>
           </div>
         </div>
-      ) : (
-        <div className="grid rise" style={{ gridTemplateColumns: "1.3fr 1fr", gap: 18, marginBottom: 18, animationDelay: "180ms" }}>
-          <div style={card(0)}>
-            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>Gasto por unidad</h3>
-            <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>mayo 2026 · soles · clic en una unidad para ver detalle</div>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={porUnidad} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid horizontal={false} stroke={C.borderSoft} />
-                <XAxis type="number" stroke={C.textFaint} fontSize={11} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
-                <YAxis type="category" dataKey="placa" stroke={C.textMut} fontSize={11} width={64} />
-                <Tooltip cursor={{ fill: `${C.green}10` }} contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => [soles(v), "Gasto"]} />
-                <Bar dataKey="costo" radius={[0, 5, 5, 0]} cursor="pointer"
-                  onClick={(d) => { const t = flota.find((x) => x.placa === d.placa); if (t) setFiltro(String(t.id)); }}>
-                  {porUnidad.map((_, i) => <Cell key={i} fill={i === 0 ? C.amber : C.greenDeep} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={card(40)}>
-            <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 14.5, margin: "0 0 4px" }}>Rendimiento por unidad</h3>
-            <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 12 }}>km/galón · mayor es mejor</div>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={[...porUnidad].sort((a, b) => b.rend - a.rend)} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid horizontal={false} stroke={C.borderSoft} />
-                <XAxis type="number" stroke={C.textFaint} fontSize={11} />
-                <YAxis type="category" dataKey="placa" stroke={C.textMut} fontSize={11} width={64} />
-                <Tooltip cursor={{ fill: `${C.teal}10` }} contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => [`${v} km/gal`, "Rendimiento"]} />
-                <Bar dataKey="rend" radius={[0, 5, 5, 0]}>
-                  {[...porUnidad].sort((a, b) => b.rend - a.rend).map((u, i) => <Cell key={i} fill={u.rend < 8 ? C.amber : C.teal} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
       )}
 
       {/* Tabla */}
-      <div className="rise" style={card(220)}>
+      <div className="rise" style={card(300)}>
         <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 16 }}>
           <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Historial de abastecimientos</h3>
-          <span style={{ fontSize: 12, color: C.textMut }}>{logs.length} registro{logs.length !== 1 ? "s" : ""}</span>
+          <span style={{ fontSize: 12, color: C.textMut }}>{logs.length} registro{logs.length !== 1 ? "s" : ""}{esUnidad ? ` · ${placa(+filtro)}` : ""}</span>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -689,7 +733,11 @@ function Combustible({ fuel, flota, stats }) {
               {logs.map((f) => (
                 <tr key={f.id} style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
                   <td style={{ padding: "10px", color: C.textMut }}>{f.fecha.slice(5).replace("-", "/")}</td>
-                  <td style={{ padding: "10px", fontWeight: 600, fontFamily: fontDisplay }}>{placa(f.truckId)}</td>
+                  <td style={{ padding: "10px", fontWeight: 600, fontFamily: fontDisplay }}>
+                    <span className="flex items-center" style={{ gap: 7 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: 99, background: colorDe(f.truckId) }} /> {placa(f.truckId)}
+                    </span>
+                  </td>
                   <td className="tnum" style={{ padding: "10px", textAlign: "right" }}>{f.galones}</td>
                   <td className="tnum" style={{ padding: "10px", textAlign: "right", color: C.textMut }}>{soles(f.precio)}</td>
                   <td className="tnum" style={{ padding: "10px", textAlign: "right", fontWeight: 600 }}>{soles(f.costo)}</td>
