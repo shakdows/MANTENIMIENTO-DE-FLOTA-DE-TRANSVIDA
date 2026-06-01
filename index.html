@@ -636,7 +636,7 @@ function Combustible({ fuel, flota }) {
       </div>
 
       {/* Filtro por botones */}
-      <div className="rise" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+      <div className="rise" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
         <button onClick={() => setFiltro("todos")} style={chip(filtro === "todos")}>
           <Truck size={14} /> Toda la flota
         </button>
@@ -645,6 +645,12 @@ function Combustible({ fuel, flota }) {
             <span style={{ width: 8, height: 8, borderRadius: 99, background: colorDe(t.id) }} /> {t.placa}
           </button>
         ))}
+        {(esUnidad || metric !== "rend") && (
+          <button onClick={() => { setFiltro("todos"); setMetric("rend"); }}
+            style={{ padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody, border: `1px dashed ${C.border}`, background: "transparent", color: C.textFaint, display: "flex", alignItems: "center", gap: 6 }}>
+            <X size={13} /> Restablecer
+          </button>
+        )}
       </div>
 
       {/* KPIs */}
@@ -858,10 +864,18 @@ function Llantas({ flota, llantas }) {
             <Ruler size={18} color={C.teal} />
             <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Proyección de desgaste · ¿cuándo revisar?</h3>
           </div>
-          <select value={selLlanta} onChange={(e) => setSelLlanta(+e.target.value)}
-            style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", color: C.text, fontSize: 13, fontFamily: fontBody, cursor: "pointer", maxWidth: 280 }}>
-            {rows.map((r) => <option key={r.id} value={r.id} style={{ background: C.surface }}>{placa(r.truckId)} · {r.pos} · {r.marca}</option>)}
-          </select>
+          <div className="flex items-center" style={{ gap: 8 }}>
+            <select value={selLlanta} onChange={(e) => setSelLlanta(+e.target.value)}
+              style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", color: C.text, fontSize: 13, fontFamily: fontBody, cursor: "pointer", maxWidth: 280 }}>
+              {rows.map((r) => <option key={r.id} value={r.id} style={{ background: C.surface }}>{placa(r.truckId)} · {r.pos} · {r.marca}</option>)}
+            </select>
+            {selLlanta !== rows[0].id && (
+              <button onClick={() => setSelLlanta(rows[0].id)} title="Volver a la llanta prioritaria"
+                style={{ padding: "8px 12px", borderRadius: 10, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody, border: `1px dashed ${C.border}`, background: "transparent", color: C.textFaint, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                <X size={13} /> Restablecer
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 16 }}>
           mide la cocada (mm) con galga y la app calcula el ritmo de desgaste y la fecha de revisión
