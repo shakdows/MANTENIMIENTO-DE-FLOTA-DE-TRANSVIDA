@@ -276,6 +276,7 @@ function App() {
   const [selTruck, setSelTruck] = useState(null);
   const [bitacora, setBitacora] = useState([]);          // eventos del conductor con fecha/hora
   const [kmInicioDia, setKmInicioDia] = useState({});    // km inicio de día por camión
+  const [equipoFlota, setEquipoFlota] = useState(() => ({ ...EQUIPO_INI })); // checklist por camión
 
   const addEvento = (truckId, ev) =>
     setBitacora((prev) => [{ id: Date.now() + Math.random(), truckId, ts: new Date().toISOString(), ...ev }, ...prev]);
@@ -334,10 +335,12 @@ function App() {
   const updateKm = (truckId, km) =>
     setFlota((prev) => prev.map((t) => (t.id === truckId ? { ...t, km } : t)));
 
-  const saveEquipo = (truckId, equipo, estadoTxt) =>
+  const saveEquipo = (truckId, equipo, estadoTxt) => {
+    setEquipoFlota((prev) => ({ ...prev, [truckId]: { ...equipo } }));
     setFlota((prev) => prev.map((t) => (t.id === truckId
       ? { ...t, estado: estadoTxt === "En taller" ? "En taller" : estadoTxt === "Operativo con observaciones" ? "Mantenimiento" : "Operativo" }
       : t)));
+  };
 
   const NAV_ALL = [
     { key: "dashboard", label: "Resumen", icon: LayoutDashboard },
@@ -450,7 +453,10 @@ function App() {
       </main>
 
       {fuelModal && <FuelModal flota={flota} onClose={() => setFuelModal(false)} onSave={addFuel} />}
-      {selTruck && <TruckModal truck={selTruck} fuel={fuel} onClose={() => setSelTruck(null)} onSaveEquipo={saveEquipo} />}
+      {selTruck && (() => {
+        const tActual = flota.find((t) => t.id === selTruck.id) || selTruck;
+        return <TruckModal truck={tActual} fuel={fuel} equipoInicial={equipoFlota[selTruck.id]} onClose={() => setSelTruck(null)} onSaveEquipo={saveEquipo} />;
+      })()}
     </div>
   );
 }
@@ -1590,14 +1596,14 @@ function FuelModal({ flota, onClose, onSave }) {
   );
 }
 
-function TruckModal({ truck, fuel, onClose, onSaveEquipo }) {
+function TruckModal({ truck, fuel, equipoInicial, onClose, onSaveEquipo }) {
   const logs = fuel.filter((f) => f.truckId === truck.id);
   const galTot = logs.reduce((a, f) => a + f.galones, 0);
   const costoTot = logs.reduce((a, f) => a + f.galones * f.precio, 0);
   const kmTot = logs.reduce((a, f) => a + (f.km - f.kmAnt), 0);
   const rend = galTot ? kmTot / galTot : 0;
 
-  const [equipo, setEquipo] = useState(() => ({ ...(EQUIPO_INI[truck.id] || {}) }));
+  const [equipo, setEquipo] = useState(() => ({ ...(equipoInicial || EQUIPO_INI[truck.id] || {}) }));
   const [guardado, setGuardado] = useState(false);
   const toggle = (k) => { setEquipo((e) => ({ ...e, [k]: !e[k] })); setGuardado(false); };
 
