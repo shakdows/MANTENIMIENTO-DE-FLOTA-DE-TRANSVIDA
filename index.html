@@ -78,7 +78,16 @@ const FLOTA_INI = [
     desde: { aceite: 3200, filtroAire: 8000, filtroComb: 6000, frenos: 12000, llantas: 7000, refrig: 16000 } },
   { id: 8, placa: "B8K-221", modelo: "Hino Serie 300",    anio: 2023, km: 73400, capGal: 26, estado: "Operativo",
     desde: { aceite: 9900, filtroAire: 19800, filtroComb: 13000, frenos: 18000, llantas: 10500, refrig: 28000 } },
-];
+].map((t) => {
+  // ultimoServ[tipo] = odómetro en que se hizo el último servicio = km actual - km recorridos desde entonces.
+  // Guardamos esto (no "desde") para que el avance del odómetro propague solo a todos los módulos.
+  const ultimoServ = {};
+  Object.keys(t.desde).forEach((k) => { ultimoServ[k] = t.km - t.desde[k]; });
+  return { ...t, ultimoServ };
+});
+
+// km recorridos desde el último servicio de un tipo (se recalcula con el odómetro vivo)
+const desdeKm = (t, key) => Math.max(0, t.km - (t.ultimoServ?.[key] ?? t.km));
 
 const FUEL_INI = [
   { id: 1, fecha: "2026-05-03", truckId: 1, galones: 50, precio: 15.4, km: 47200, kmAnt: 46700 },
@@ -250,7 +259,7 @@ function serieDiaria(truck, dias = 21) {
 function proximoMant(truck, kmDiaProm) {
   let best = null;
   MANT_TIPOS.forEach((tp) => {
-    const s = servStatus(tp, truck.desde[tp.key]);
+    const s = servStatus(tp, desdeKm(truck, tp.key));
     if (!best || s.rem < best.rem) best = { tipo: tp, ...s };
   });
   const diasRest = best.rem > 0 ? Math.ceil(best.rem / Math.max(1, kmDiaProm)) : 0;
@@ -297,7 +306,7 @@ function App() {
   const stats = useMemo(() => {
     let vencidos = 0, proximos = 0;
     flota.forEach((t) => MANT_TIPOS.forEach((tp) => {
-      const s = servStatus(tp, t.desde[tp.key]);
+      const s = servStatus(tp, desdeKm(t, tp.key));
       if (s.estado === "Vencido") vencidos++; else if (s.estado === "Próximo") proximos++;
     }));
     const operativos = flota.filter((t) => t.estado === "Operativo").length;
@@ -312,7 +321,7 @@ function App() {
   const alertas = useMemo(() => {
     const out = [];
     flota.forEach((t) => MANT_TIPOS.forEach((tp) => {
-      const s = servStatus(tp, t.desde[tp.key]);
+      const s = servStatus(tp, desdeKm(t, tp.key));
       if (s.estado !== "Al día") out.push({ placa: t.placa, modelo: t.modelo, servicio: tp.nombre, ...s });
     }));
     return out.sort((a, b) => a.rem - b.rem);
@@ -329,7 +338,7 @@ function App() {
   }, [fuel, flota]);
 
   const registrarServicio = (truckId, key) =>
-    setFlota((prev) => prev.map((t) => (t.id === truckId ? { ...t, desde: { ...t.desde, [key]: 0 } } : t)));
+    setFlota((prev) => prev.map((t) => (t.id === truckId ? { ...t, ultimoServ: { ...t.ultimoServ, [key]: t.km } } : t)));
 
   const addFuel = (data) => {
     const t = flota.find((x) => x.id === data.truckId);
@@ -547,8 +556,8 @@ function Flota({ flota, onSel }) {
   return (
     <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(265px, 1fr))", gap: 14 }}>
       {flota.map((t, i) => {
-        const venc = MANT_TIPOS.filter((tp) => servStatus(tp, t.desde[tp.key]).estado === "Vencido").length;
-        const prox = MANT_TIPOS.filter((tp) => servStatus(tp, t.desde[tp.key]).estado === "Próximo").length;
+        const venc = MANT_TIPOS.filter((tp) => servStatus(tp, desdeKm(t, tp.key)).estado === "Vencido").length;
+        const prox = MANT_TIPOS.filter((tp) => servStatus(tp, desdeKm(t, tp.key)).estado === "Próximo").length;
         return (
           <button key={t.id} onClick={() => onSel(t)} className="rise hov" style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 17, cursor: "pointer", animationDelay: `${i * 40}ms`, color: C.text, fontFamily: fontBody }}>
             <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 13 }}>
@@ -582,7 +591,7 @@ function Mantenimiento({ flota, onReg }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {flota.map((t, i) => {
         const open = exp === t.id;
-        const venc = MANT_TIPOS.filter((tp) => servStatus(tp, t.desde[tp.key]).estado === "Vencido").length;
+        const venc = MANT_TIPOS.filter((tp) => servStatus(tp, desdeKm(t, tp.key)).estado === "Vencido").length;
         return (
           <div key={t.id} className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, animationDelay: `${i * 35}ms`, overflow: "hidden" }}>
             <button onClick={() => setExp(open ? null : t.id)} className="flex items-center" style={{ width: "100%", justifyContent: "space-between", padding: "16px 18px", background: "none", border: "none", cursor: "pointer", color: C.text, fontFamily: fontBody }}>
@@ -599,8 +608,8 @@ function Mantenimiento({ flota, onReg }) {
             {open && (
               <div style={{ borderTop: `1px solid ${C.borderSoft}`, padding: "6px 0" }}>
                 {MANT_TIPOS.map((tp) => {
-                  const s = servStatus(tp, t.desde[tp.key]);
-                  const pct = Math.max(0, Math.min(100, (t.desde[tp.key] / tp.intervalo) * 100));
+                  const s = servStatus(tp, desdeKm(t, tp.key));
+                  const pct = Math.max(0, Math.min(100, (desdeKm(t, tp.key) / tp.intervalo) * 100));
                   return (
                     <div key={tp.key} className="flex items-center" style={{ justifyContent: "space-between", padding: "11px 18px", gap: 16 }}>
                       <div className="flex items-center" style={{ gap: 12, minWidth: 0, flex: 1 }}>
