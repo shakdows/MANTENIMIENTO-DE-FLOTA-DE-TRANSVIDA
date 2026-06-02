@@ -1207,51 +1207,78 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
   const next = proximoMant(truck, prom);
   const cambio = +km !== truck.km && +km > 0;
 
+  // Semáforo simple para el mantenimiento (sin jerga)
+  const sem = next.rem <= 0
+    ? { color: C.red, txt: "Llévalo al taller", emoji: "🔴", sub: "Ya toca servicio" }
+    : next.diasRest <= 7
+      ? { color: C.amber, txt: "Pronto al taller", emoji: "🟡", sub: `Aprox. el ${fmtFecha(next.fecha)}` }
+      : { color: C.green, txt: "Todo bien", emoji: "🟢", sub: `Aprox. el ${fmtFecha(next.fecha)}` };
+
+  // Nombre simple del servicio (evita tecnicismos)
+  const servicioSimple = next.tipo.key === "aceite" ? "Cambio de aceite"
+    : next.tipo.key === "llantas" ? "Revisar llantas"
+    : next.tipo.key === "frenos" ? "Revisar frenos"
+    : next.tipo.nombre.startsWith("Filtro") ? "Cambio de filtro"
+    : "Revisión general";
+
+  const big = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 18 };
+
   return (
-    <div style={{ maxWidth: 640, margin: "0 auto" }}>
-      <div className="rise" style={{ background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, border: `1px solid ${C.border}`, borderRadius: 18, padding: 24, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: C.textMut }}>Tu unidad asignada</div>
+    <div style={{ maxWidth: 560, margin: "0 auto" }}>
+      {/* Mi camión */}
+      <div className="rise" style={{ ...big, background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, padding: 22, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: C.textMut }}>Mi camión</div>
         <div className="flex items-center" style={{ gap: 12, marginTop: 4 }}>
-          <span style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 34, letterSpacing: ".5px" }}>{truck.placa}</span>
+          <span style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 36, letterSpacing: ".5px" }}>{truck.placa}</span>
           <span className="flex items-center" style={{ gap: 6, fontSize: 12, fontWeight: 600, color: estadoColor(truck.estado), background: `${estadoColor(truck.estado)}1A`, padding: "5px 11px", borderRadius: 8 }}>
             <span style={{ width: 7, height: 7, borderRadius: 99, background: estadoColor(truck.estado) }} /> {truck.estado}
           </span>
         </div>
-        <div style={{ fontSize: 13.5, color: C.textMut, marginTop: 4 }}>{truck.modelo} · {num(truck.km)} km</div>
       </div>
 
-      {/* Próximo mantenimiento — grande y claro */}
-      <div className="rise" style={{ background: C.surface, border: `1px solid ${next.diasRest > 0 && next.diasRest < 7 ? C.amber : C.border}`, borderRadius: 16, padding: 22, marginBottom: 16, animationDelay: "60ms" }}>
-        <div className="flex items-center" style={{ gap: 9, marginBottom: 12 }}>
-          <CalendarClock size={18} color={C.amber} />
-          <span style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15 }}>Tu próximo mantenimiento</span>
-        </div>
-        <div style={{ fontSize: 22, fontFamily: fontDisplay, fontWeight: 800 }}>{next.tipo.nombre}</div>
-        <div className="flex items-center" style={{ gap: 20, marginTop: 12, flexWrap: "wrap" }}>
-          <div><div style={{ fontSize: 11.5, color: C.textFaint }}>Faltan</div><div className="tnum" style={{ fontSize: 18, fontWeight: 700, color: next.rem > 0 ? C.green : C.red }}>{next.rem > 0 ? `${num(next.rem)} km` : "Vencido"}</div></div>
-          <div><div style={{ fontSize: 11.5, color: C.textFaint }}>Fecha estimada</div><div style={{ fontSize: 18, fontWeight: 700 }}>{next.diasRest > 0 ? fmtFecha(next.fecha) : "Ya"}</div></div>
-          <div><div style={{ fontSize: 11.5, color: C.textFaint }}>Tu promedio</div><div className="tnum" style={{ fontSize: 18, fontWeight: 700 }}>{num(prom)} km/día</div></div>
-        </div>
+      {/* Semáforo de mantenimiento — una sola cosa, grande */}
+      <div className="rise" style={{ ...big, border: `2px solid ${sem.color}`, padding: 22, marginBottom: 14, animationDelay: "60ms", textAlign: "center" }}>
+        <div style={{ fontSize: 46, lineHeight: 1 }}>{sem.emoji}</div>
+        <div style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 26, color: sem.color, marginTop: 8 }}>{sem.txt}</div>
+        <div style={{ fontSize: 15, color: C.text, marginTop: 8 }}>{servicioSimple}</div>
+        <div style={{ fontSize: 13, color: C.textMut, marginTop: 2 }}>{sem.sub}</div>
       </div>
 
-      {/* Acciones del conductor */}
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, animationDelay: "120ms" }}>
-          <div className="flex items-center" style={{ gap: 8, marginBottom: 12 }}><Gauge size={17} color={C.teal} /><span style={{ fontWeight: 600, fontSize: 14 }}>Reportar kilometraje</span></div>
-          <input type="number" value={km} onChange={(e) => setKm(e.target.value)}
-            style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px 13px", color: C.text, fontSize: 18, fontFamily: fontDisplay, fontWeight: 700 }} />
-          <button disabled={!cambio} onClick={() => onUpdateKm(truck.id, +km)}
-            style={{ width: "100%", marginTop: 11, background: cambio ? C.teal : C.surface2, color: cambio ? "#04120C" : C.textFaint, border: "none", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: cambio ? "pointer" : "not-allowed", fontFamily: fontBody }}>
-            Actualizar km
-          </button>
+      {/* Botón 1: anotar kilometraje */}
+      <div className="rise" style={{ ...big, padding: 20, marginBottom: 14, animationDelay: "120ms" }}>
+        <div className="flex items-center" style={{ gap: 10, marginBottom: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${C.teal}1A`, display: "grid", placeItems: "center" }}><Gauge size={20} color={C.teal} /></div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay }}>Anotar kilómetros</div>
+            <div style={{ fontSize: 12.5, color: C.textMut }}>Copia el número del tablero</div>
+          </div>
         </div>
-        <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, animationDelay: "160ms", display: "flex", flexDirection: "column" }}>
-          <div className="flex items-center" style={{ gap: 8, marginBottom: 12 }}><Fuel size={17} color={C.amber} /><span style={{ fontWeight: 600, fontSize: 14 }}>Cargué combustible</span></div>
-          <p style={{ fontSize: 12.5, color: C.textMut, margin: "0 0 14px", flex: 1 }}>Registra galones, precio y odómetro después de cada grifo.</p>
-          <button onClick={onFuel} className="flex items-center" style={{ justifyContent: "center", gap: 7, background: C.amber, color: "#1A1200", border: "none", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: fontBody }}>
-            <Plus size={16} strokeWidth={2.6} /> Registrar abastecimiento
-          </button>
+        <input type="number" value={km} onChange={(e) => setKm(e.target.value)} inputMode="numeric"
+          style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", color: C.text, fontSize: 26, fontFamily: fontDisplay, fontWeight: 800, textAlign: "center" }} />
+        <button disabled={!cambio} onClick={() => onUpdateKm(truck.id, +km)}
+          style={{ width: "100%", marginTop: 11, background: cambio ? C.teal : C.surface2, color: cambio ? "#04120C" : C.textFaint, border: "none", padding: "15px", borderRadius: 12, fontWeight: 800, fontSize: 16, cursor: cambio ? "pointer" : "not-allowed", fontFamily: fontBody }}>
+          Guardar
+        </button>
+      </div>
+
+      {/* Botón 2: cargué combustible (grande, con aviso anti-robo) */}
+      <div className="rise" style={{ ...big, padding: 20, animationDelay: "160ms" }}>
+        <div className="flex items-center" style={{ gap: 10, marginBottom: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${C.amber}1A`, display: "grid", placeItems: "center" }}><Fuel size={20} color={C.amber} /></div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay }}>Eché combustible</div>
+            <div style={{ fontSize: 12.5, color: C.textMut }}>Después de cada grifo</div>
+          </div>
         </div>
+        <div className="flex items-center" style={{ gap: 8, background: `${C.amber}10`, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <AlertTriangle size={26} color={C.amber} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, color: C.text, lineHeight: 1.4 }}>
+            Toma <b>foto del tablero</b> (los kilómetros) y <b>foto de la boleta</b> del grifo. Es para tu respaldo.
+          </span>
+        </div>
+        <button onClick={onFuel} className="flex items-center" style={{ width: "100%", justifyContent: "center", gap: 8, background: C.amber, color: "#1A1200", border: "none", padding: "16px", borderRadius: 12, fontWeight: 800, fontSize: 17, cursor: "pointer", fontFamily: fontBody }}>
+          <Plus size={20} strokeWidth={2.8} /> Registrar
+        </button>
       </div>
     </div>
   );
@@ -1274,10 +1301,22 @@ function FuelModal({ flota, onClose, onSave }) {
   const [galones, setGalones] = useState("");
   const [precio, setPrecio] = useState("15.50");
   const [km, setKm] = useState("");
+  const [fotoTablero, setFotoTablero] = useState(false);
+  const [fotoBoleta, setFotoBoleta] = useState(false);
   const t = flota.find((x) => x.id === truckId);
-  const valid = galones > 0 && precio > 0 && km > (t?.km ?? 0);
+  const valid = galones > 0 && precio > 0 && km > (t?.km ?? 0) && fotoTablero && fotoBoleta;
+
+  // Control anti-robo: rendimiento de esta carga vs lo esperado
+  const recorrido = km > (t?.km ?? 0) ? +km - t.km : 0;
+  const rendCarga = galones > 0 && recorrido > 0 ? recorrido / +galones : null;
+  const espera = t && t.capGal >= 79 ? 7 : t && t.capGal >= 53 ? 9 : 11; // km/gal esperado por tipo
+  const sospechoso = rendCarga !== null && rendCarga < espera * 0.7; // 30% bajo lo normal
+
   const inp = { width: "100%", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "10px 12px", color: C.text, fontSize: 14, fontFamily: fontBody, marginTop: 6 };
   const lbl = { fontSize: 12, color: C.textMut, fontWeight: 500 };
+  const fotoBtn = (on) => ({ width: "100%", marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "11px", borderRadius: 9, cursor: "pointer", fontFamily: fontBody, fontSize: 13, fontWeight: 600,
+    background: on ? `${C.green}1A` : C.surface, border: `1px solid ${on ? `${C.green}55` : C.border}`, color: on ? C.green : C.textMut });
+
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 20 }}>
@@ -1298,15 +1337,43 @@ function FuelModal({ flota, onClose, onSave }) {
           <div><span style={lbl}>Galones</span><input type="number" value={galones} onChange={(e) => setGalones(e.target.value)} placeholder="0" style={inp} /></div>
           <div><span style={lbl}>Precio / galón (S/)</span><input type="number" step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} style={inp} /></div>
         </div>
+
+        {/* Evidencia obligatoria (anti-robo) */}
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <span style={lbl}>Foto del tablero</span>
+            <button onClick={() => setFotoTablero((v) => !v)} style={fotoBtn(fotoTablero)}>
+              {fotoTablero ? <CheckCircle2 size={15} /> : <Gauge size={15} />} {fotoTablero ? "Adjuntada" : "Tomar foto"}
+            </button>
+          </div>
+          <div>
+            <span style={lbl}>Foto de la boleta</span>
+            <button onClick={() => setFotoBoleta((v) => !v)} style={fotoBtn(fotoBoleta)}>
+              {fotoBoleta ? <CheckCircle2 size={15} /> : <ClipboardList size={15} />} {fotoBoleta ? "Adjuntada" : "Tomar foto"}
+            </button>
+          </div>
+        </div>
+
         {galones > 0 && precio > 0 && (
           <div className="flex items-center" style={{ justifyContent: "space-between", background: C.surface, borderRadius: 10, padding: "11px 14px" }}>
             <span style={{ fontSize: 13, color: C.textMut }}>Costo total</span>
             <span className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 17, color: C.green }}>{soles(galones * precio)}</span>
           </div>
         )}
+
+        {/* Alerta de rendimiento anómalo */}
+        {sospechoso && (
+          <div className="flex items-center" style={{ gap: 10, background: `${C.red}12`, border: `1px solid ${C.red}44`, borderRadius: 10, padding: "11px 13px" }}>
+            <AlertTriangle size={22} color={C.red} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 12.5, color: C.text, lineHeight: 1.4 }}>
+              <b style={{ color: C.red }}>Rendimiento bajo:</b> {rendCarga.toFixed(1)} km/gal (lo normal es ~{espera}). Se marcará para que gestión lo revise.
+            </span>
+          </div>
+        )}
+
         <button disabled={!valid} onClick={() => onSave({ truckId, fecha, galones: +galones, precio: +precio, km: +km })}
-          style={{ background: valid ? C.green : C.surface2, color: valid ? "#04120C" : C.textFaint, border: "none", padding: "12px", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "not-allowed", fontFamily: fontBody, marginTop: 4 }}>
-          Guardar registro
+          style={{ background: valid ? C.green : C.surface2, color: valid ? "#04120C" : C.textFaint, border: "none", padding: "13px", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "not-allowed", fontFamily: fontBody, marginTop: 4 }}>
+          {fotoTablero && fotoBoleta ? "Guardar registro" : "Adjunta las dos fotos para guardar"}
         </button>
       </div>
     </Overlay>
