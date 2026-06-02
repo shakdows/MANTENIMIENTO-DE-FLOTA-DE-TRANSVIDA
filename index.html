@@ -772,6 +772,43 @@ function Combustible({ fuel, flota }) {
         </ResponsiveContainer>
       </div>
 
+      {/* GASTO POR DÍA */}
+      {(() => {
+        const dias = {};
+        filtrados.forEach((f) => { dias[f.fecha] = (dias[f.fecha] || 0) + f.costo; });
+        const serieDias = Object.keys(dias).sort().map((fe) => ({ fecha: fe.slice(5).replace("-", "/"), gasto: +dias[fe].toFixed(2) }));
+        const totalGasto = serieDias.reduce((a, d) => a + d.gasto, 0);
+        const promDia = serieDias.length ? totalGasto / serieDias.length : 0;
+        const maxDia = serieDias.reduce((m, d) => d.gasto > m.gasto ? d : m, { gasto: 0 });
+        return (
+          <div className="rise" style={{ ...card(195), marginBottom: 18 }}>
+            <div className="flex items-center" style={{ justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 10 }}>
+              <h3 style={{ fontFamily: fontDisplay, fontWeight: 700, fontSize: 15, margin: 0 }}>Gasto de combustible por día</h3>
+              <div className="flex items-center" style={{ gap: 16, fontSize: 12, color: C.textMut, flexWrap: "wrap" }}>
+                <span>Total <b style={{ color: C.green }}>{soles(totalGasto)}</b></span>
+                <span>Promedio/día <b style={{ color: C.text }}>{soles(promDia)}</b></span>
+                {maxDia.gasto > 0 && <span>Día más caro <b style={{ color: C.amber }}>{maxDia.fecha} · {soles(maxDia.gasto)}</b></span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 14 }}>
+              cada barra es lo gastado ese día {esUnidad ? `en ${placa(+filtro)}` : "en toda la flota"} · incluye lo que reportan los conductores
+            </div>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={serieDias} margin={{ left: 4, right: 8, top: 8 }}>
+                <CartesianGrid stroke={C.borderSoft} vertical={false} />
+                <XAxis dataKey="fecha" stroke={C.textFaint} fontSize={10.5} />
+                <YAxis stroke={C.textFaint} fontSize={11} tickFormatter={(v) => `S/${v >= 1000 ? (v / 1000).toFixed(1) + "k" : v}`} width={48} />
+                <Tooltip cursor={{ fill: `${C.amber}10` }} contentStyle={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 12 }} labelStyle={{ color: C.text }} formatter={(v) => [soles(v), "Gasto del día"]} />
+                <ReferenceLine y={promDia} stroke={C.textMut} strokeDasharray="4 4" label={{ value: `prom ${soles(promDia)}`, position: "insideTopRight", fill: C.textMut, fontSize: 10 }} />
+                <Bar dataKey="gasto" radius={[5, 5, 0, 0]} maxBarSize={46}>
+                  {serieDias.map((d, i) => <Cell key={i} fill={d.gasto === maxDia.gasto ? C.amber : C.greenDeep} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        );
+      })()}
+
       {/* Comparativas de flota */}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
         <div className="rise" style={card(220)}>
@@ -1287,7 +1324,6 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quita
     { key: "descanso", label: "Tomé descanso", icon: Clock, color: "#A78BFA", onClick: () => addEvento(truck.id, { tipo: "Descanso", icon: "Clock", color: "#A78BFA" }) },
   ];
   const ICN = { Fuel, CheckCircle2, Truck, CircleDot, Wrench, Clock };
-  const hora = (ts) => new Date(ts).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 
   const guardarComb = () => { if (monto > 0) { addEvento(truck.id, { tipo: "Combustible", monto, icon: "Fuel", color: C.amber }); addFuelConductor(truck.id, monto); setPidiendoMonto(false); } };
 
@@ -1365,7 +1401,6 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quita
                   <span className="flex items-center" style={{ gap: 10 }}>
                     <Ic size={17} color={e.color} />
                     <span style={{ fontSize: 14, fontWeight: 600 }}>{e.tipo}</span>
-                    <span className="tnum" style={{ fontSize: 11.5, color: C.textFaint }}>{hora(e.ts)}</span>
                   </span>
                   <span className="flex items-center" style={{ gap: 10 }}>
                     {e.monto ? <span className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 15, color: C.amber }}>{soles(e.monto)}</span> : null}
