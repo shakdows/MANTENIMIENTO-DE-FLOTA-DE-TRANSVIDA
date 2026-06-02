@@ -259,7 +259,7 @@ const ROLES = {
   conductor: { label: "Conductor", icon: User,
     sub: "Mi unidad · registro diario", tabs: ["miunidad"], puedeRegistrar: true },
   gestion: { label: "Jefe de gestión", icon: ClipboardList,
-    sub: "Operación completa de flota", tabs: ["dashboard", "flota", "mant", "comb", "llantas", "proy"], puedeRegistrar: true },
+    sub: "Operación completa de flota", tabs: ["dashboard", "flota", "mant", "comb", "llantas", "proy", "bitacora"], puedeRegistrar: true },
   gerencia: { label: "Gerencia", icon: Building2,
     sub: "Indicadores y proyección", tabs: ["dashboard", "proy", "llantas"], puedeRegistrar: false },
 };
@@ -273,6 +273,12 @@ function App() {
   const [llantas] = useState(LLANTAS_INI);
   const [fuelModal, setFuelModal] = useState(false);
   const [selTruck, setSelTruck] = useState(null);
+  const [bitacora, setBitacora] = useState([]);          // eventos del conductor con fecha/hora
+  const [kmInicioDia, setKmInicioDia] = useState({});    // km inicio de día por camión
+
+  const addEvento = (truckId, ev) =>
+    setBitacora((prev) => [{ id: Date.now() + Math.random(), truckId, ts: new Date().toISOString(), ...ev }, ...prev]);
+  const quitarEvento = (id) => setBitacora((prev) => prev.filter((e) => e.id !== id));
 
   const cambiarRol = (r) => {
     setRol(r); setRolOpen(false);
@@ -334,6 +340,7 @@ function App() {
     { key: "comb", label: "Combustible", icon: Fuel },
     { key: "llantas", label: "Llantas", icon: CircleDot },
     { key: "proy", label: "Proyección", icon: TrendingUp },
+    { key: "bitacora", label: "Bitácora", icon: ClipboardList },
     { key: "miunidad", label: "Mi unidad", icon: Truck },
   ];
   const cfg = ROLES[rol];
@@ -427,9 +434,12 @@ function App() {
         {tab === "comb" && <Combustible fuel={fuel} flota={flota} />}
         {tab === "llantas" && <Llantas flota={flota} llantas={llantas} />}
         {tab === "proy" && <Proyeccion flota={flota} fuel={fuel} />}
+        {tab === "bitacora" && <Bitacora flota={flota} bitacora={bitacora} />}
         {tab === "miunidad" && (
           <Conductor truck={flota.find((t) => t.id === DRIVER_TRUCK_ID)} fuel={fuel}
-            onFuel={() => setFuelModal(true)} onUpdateKm={updateKm} />
+            onFuel={() => setFuelModal(true)} onUpdateKm={updateKm}
+            bitacora={bitacora} addEvento={addEvento} quitarEvento={quitarEvento}
+            kmInicioDia={kmInicioDia} setKmInicioDia={setKmInicioDia} />
         )}
       </main>
 
@@ -1201,51 +1211,56 @@ function Proyeccion({ flota, fuel }) {
 }
 
 /* ============================ CONDUCTOR ============================ */
-function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
-  const [kmIni, setKmIni] = useState(truck.km);          // km al empezar el día
-  const [kmFin, setKmFin] = useState(null);              // km al terminar
-  const [eventos, setEventos] = useState([]);            // acciones del día
+function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quitarEvento, kmInicioDia, setKmInicioDia }) {
+  const HOY = "2026-05-31";
+  // km inicio del día: si no se fijó hoy, es el km actual del camión
+  const kmIni = kmInicioDia[truck.id]?.fecha === HOY ? kmInicioDia[truck.id].km : truck.km;
+  const diaIniciado = kmInicioDia[truck.id]?.fecha === HOY;
+
+  const [kmFinModal, setKmFinModal] = useState(false);
+  const [kmFinVal, setKmFinVal] = useState("");
   const [pidiendoMonto, setPidiendoMonto] = useState(false);
   const [monto, setMonto] = useState(0);
+
+  // eventos de hoy de este camión
+  const eventosHoy = bitacora.filter((e) => e.truckId === truck.id && e.ts.slice(0, 10) === HOY);
+  const cerrado = kmInicioDia[truck.id]?.cerrado && kmInicioDia[truck.id]?.fecha === HOY;
+  const kmFin = cerrado ? kmInicioDia[truck.id].kmFin : null;
+  const recorrido = kmFin != null ? Math.max(0, kmFin - kmIni) : 0;
 
   const sem = (() => {
     const { prom } = serieDiaria(truck);
     const next = proximoMant(truck, prom);
-    return next.rem <= 0
-      ? { color: C.red, txt: "Llévalo al taller", emoji: "🔴" }
-      : next.diasRest <= 7
-        ? { color: C.amber, txt: "Pronto al taller", emoji: "🟡" }
-        : { color: C.green, txt: "Todo bien", emoji: "🟢" };
+    return next.rem <= 0 ? { color: C.red, txt: "Llévalo al taller", emoji: "🔴" }
+      : next.diasRest <= 7 ? { color: C.amber, txt: "Pronto al taller", emoji: "🟡" }
+      : { color: C.green, txt: "Todo bien", emoji: "🟢" };
   })();
 
-  const recorrido = kmFin != null ? Math.max(0, kmFin - kmIni) : 0;
-  const addEvento = (e) => setEventos((prev) => [{ id: Date.now(), hora: "ahora", ...e }, ...prev]);
-
-  // Montos rápidos para combustible (toca y listo)
-  const montosRapidos = [100, 150, 200, 250, 300, 400];
-
-  // Acciones del día (grandes, por toque)
-  const acciones = [
-    { key: "comb", label: "Eché combustible", icon: Fuel, color: C.amber, onClick: () => { setMonto(0); setPidiendoMonto(true); } },
-    { key: "carga", label: "Cargué / recogí", icon: CheckCircle2, color: C.green, onClick: () => addEvento({ tipo: "Carga recogida", icon: "CheckCircle2", color: C.green }) },
-    { key: "descarga", label: "Entregué / descargué", icon: Truck, color: C.teal, onClick: () => addEvento({ tipo: "Entrega realizada", icon: "Truck", color: C.teal }) },
-    { key: "llanta", label: "Problema con llanta", icon: CircleDot, color: C.blue, onClick: () => addEvento({ tipo: "Problema de llanta", icon: "CircleDot", color: C.blue }) },
-    { key: "falla", label: "Falla mecánica", icon: Wrench, color: C.red, onClick: () => addEvento({ tipo: "Falla mecánica", icon: "Wrench", color: C.red }) },
-    { key: "descanso", label: "Tomé descanso", icon: Clock, color: "#A78BFA", onClick: () => addEvento({ tipo: "Descanso", icon: "Clock", color: "#A78BFA" }) },
-  ];
-  const ICN = { Fuel, CheckCircle2, Truck, CircleDot, Wrench, Clock, CircleDollarSign };
-
-  const guardarComb = () => {
-    if (monto <= 0) return;
-    addEvento({ tipo: "Combustible", monto, icon: "Fuel", color: C.amber });
-    setPidiendoMonto(false);
+  const iniciarDia = () => setKmInicioDia((p) => ({ ...p, [truck.id]: { fecha: HOY, km: truck.km, cerrado: false } }));
+  const cerrarDia = () => {
+    const v = +kmFinVal;
+    if (v >= kmIni) {
+      setKmInicioDia((p) => ({ ...p, [truck.id]: { ...(p[truck.id] || { fecha: HOY, km: kmIni }), fecha: HOY, km: kmIni, cerrado: true, kmFin: v } }));
+      onUpdateKm(truck.id, v);
+      setKmFinModal(false);
+    }
   };
 
+  const montosRapidos = [100, 150, 200, 250, 300, 400];
+  const acciones = [
+    { key: "comb", label: "Eché combustible", icon: Fuel, color: C.amber, onClick: () => { setMonto(0); setPidiendoMonto(true); } },
+    { key: "carga", label: "Cargué / recogí", icon: CheckCircle2, color: C.green, onClick: () => addEvento(truck.id, { tipo: "Carga recogida", icon: "CheckCircle2", color: C.green }) },
+    { key: "descarga", label: "Entregué / descargué", icon: Truck, color: C.teal, onClick: () => addEvento(truck.id, { tipo: "Entrega realizada", icon: "Truck", color: C.teal }) },
+    { key: "llanta", label: "Problema con llanta", icon: CircleDot, color: C.blue, onClick: () => addEvento(truck.id, { tipo: "Problema de llanta", icon: "CircleDot", color: C.blue }) },
+    { key: "falla", label: "Falla mecánica", icon: Wrench, color: C.red, onClick: () => addEvento(truck.id, { tipo: "Falla mecánica", icon: "Wrench", color: C.red }) },
+    { key: "descanso", label: "Tomé descanso", icon: Clock, color: "#A78BFA", onClick: () => addEvento(truck.id, { tipo: "Descanso", icon: "Clock", color: "#A78BFA" }) },
+  ];
+  const ICN = { Fuel, CheckCircle2, Truck, CircleDot, Wrench, Clock };
+  const hora = (ts) => new Date(ts).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
+
+  const guardarComb = () => { if (monto > 0) { addEvento(truck.id, { tipo: "Combustible", monto, icon: "Fuel", color: C.amber }); setPidiendoMonto(false); } };
+
   const big = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 18 };
-  const stepBtn = (active, color) => ({
-    flex: 1, padding: "14px", borderRadius: 14, cursor: "pointer", fontFamily: fontBody, fontWeight: 800, fontSize: 16,
-    border: `1px solid ${active ? color : C.border}`, background: active ? `${color}1A` : C.bg, color: active ? color : C.textMut,
-  });
 
   return (
     <div style={{ maxWidth: 540, margin: "0 auto" }}>
@@ -1264,7 +1279,7 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
         </div>
       </div>
 
-      {/* Kilómetros del día: inicio y fin */}
+      {/* Kilómetros del día */}
       <div className="rise" style={{ ...big, padding: 20, marginBottom: 14, animationDelay: "60ms" }}>
         <div className="flex items-center" style={{ gap: 10, marginBottom: 14 }}>
           <div style={{ width: 38, height: 38, borderRadius: 11, background: `${C.teal}1A`, display: "grid", placeItems: "center" }}><Gauge size={20} color={C.teal} /></div>
@@ -1286,17 +1301,25 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
             Recorrí <b className="tnum" style={{ color: C.text }}>{num(recorrido)} km</b> hoy
           </div>
         )}
-        <div className="flex items-center" style={{ gap: 10, marginTop: 14 }}>
-          <button onClick={() => setKmIni((k) => k)} style={{ ...stepBtn(true, C.teal), opacity: .6, cursor: "default" }}>Inicio fijado</button>
-          <button onClick={() => { const v = window.prompt("¿Con cuántos km terminaste?", String(Math.max(kmIni, truck.km))); if (v && +v >= kmIni) { setKmFin(+v); onUpdateKm(truck.id, +v); } }}
-            style={stepBtn(kmFin != null, C.green)}>{kmFin != null ? "✓ Día cerrado" : "Cerrar mi día"}</button>
+        <div style={{ marginTop: 14 }}>
+          {!diaIniciado ? (
+            <button onClick={iniciarDia} style={{ width: "100%", background: C.teal, color: "#04120C", border: "none", padding: "15px", borderRadius: 12, fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: fontBody }}>
+              Empezar mi día
+            </button>
+          ) : !cerrado ? (
+            <button onClick={() => { setKmFinVal(String(truck.km)); setKmFinModal(true); }} style={{ width: "100%", background: C.green, color: "#04120C", border: "none", padding: "15px", borderRadius: 12, fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: fontBody }}>
+              Cerrar mi día
+            </button>
+          ) : (
+            <div style={{ textAlign: "center", fontSize: 14, fontWeight: 700, color: C.green, padding: "14px", background: `${C.green}12`, borderRadius: 12 }}>✓ Día cerrado</div>
+          )}
         </div>
       </div>
 
-      {/* Acciones del día — toca y listo */}
+      {/* Acciones del día */}
       <div className="rise" style={{ ...big, padding: 20, marginBottom: 14, animationDelay: "120ms" }}>
         <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay, marginBottom: 4 }}>¿Qué pasó hoy?</div>
-        <div style={{ fontSize: 12.5, color: C.textMut, marginBottom: 14 }}>Toca lo que hiciste. Es solo un clic.</div>
+        <div style={{ fontSize: 12.5, color: C.textMut, marginBottom: 14 }}>Toca lo que hiciste. Si te equivocas, lo puedes borrar abajo.</div>
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           {acciones.map((a) => (
             <button key={a.key} onClick={a.onClick} className="hov" style={{
@@ -1311,22 +1334,26 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
         </div>
       </div>
 
-      {/* Registro del día */}
-      {eventos.length > 0 && (
+      {/* Registro del día con hora y borrar */}
+      {eventosHoy.length > 0 && (
         <div className="rise" style={{ ...big, padding: 20, animationDelay: "160ms" }}>
           <div style={{ fontWeight: 700, fontSize: 15, fontFamily: fontDisplay, marginBottom: 12 }}>Lo que registré hoy</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {eventos.map((e) => {
+            {eventosHoy.map((e) => {
               const Ic = ICN[e.icon] || CheckCircle2;
               return (
                 <div key={e.id} className="flex items-center" style={{ justifyContent: "space-between", background: C.bg, borderRadius: 11, padding: "11px 13px", border: `1px solid ${C.borderSoft}` }}>
                   <span className="flex items-center" style={{ gap: 10 }}>
                     <Ic size={17} color={e.color} />
                     <span style={{ fontSize: 14, fontWeight: 600 }}>{e.tipo}</span>
+                    <span className="tnum" style={{ fontSize: 11.5, color: C.textFaint }}>{hora(e.ts)}</span>
                   </span>
-                  {e.monto
-                    ? <span className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 16, color: C.amber }}>{soles(e.monto)}</span>
-                    : <CheckCircle2 size={17} color={C.green} />}
+                  <span className="flex items-center" style={{ gap: 10 }}>
+                    {e.monto ? <span className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 15, color: C.amber }}>{soles(e.monto)}</span> : null}
+                    <button onClick={() => quitarEvento(e.id)} title="Borrar" style={{ background: "none", border: "none", color: C.textFaint, cursor: "pointer", display: "grid", placeItems: "center", padding: 2 }}>
+                      <X size={16} />
+                    </button>
+                  </span>
                 </div>
               );
             })}
@@ -1334,7 +1361,7 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
         </div>
       )}
 
-      {/* Modal: monto de combustible en soles */}
+      {/* Modal monto combustible */}
       {pidiendoMonto && (
         <Overlay onClose={() => setPidiendoMonto(false)}>
           <div className="flex items-center" style={{ gap: 10, marginBottom: 4 }}>
@@ -1342,26 +1369,142 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
             <h3 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 19, margin: 0 }}>¿Cuánto echaste?</h3>
           </div>
           <p style={{ fontSize: 13, color: C.textMut, margin: "0 0 16px" }}>Toca un monto o escríbelo. Es en soles.</p>
-          <div className="tnum" style={{ textAlign: "center", fontFamily: fontDisplay, fontWeight: 900, fontSize: 40, color: monto > 0 ? C.amber : C.textFaint, marginBottom: 16 }}>
-            {soles(monto || 0)}
-          </div>
+          <div className="tnum" style={{ textAlign: "center", fontFamily: fontDisplay, fontWeight: 900, fontSize: 40, color: monto > 0 ? C.amber : C.textFaint, marginBottom: 16 }}>{soles(monto || 0)}</div>
           <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
             {montosRapidos.map((m) => (
               <button key={m} onClick={() => setMonto(m)} className="hov" style={{
                 padding: "16px 8px", borderRadius: 12, cursor: "pointer", fontFamily: fontDisplay, fontWeight: 800, fontSize: 17,
-                background: monto === m ? `${C.amber}22` : C.bg, border: `1px solid ${monto === m ? C.amber : C.border}`, color: monto === m ? C.amber : C.text }}>
-                S/ {m}
-              </button>
+                background: monto === m ? `${C.amber}22` : C.bg, border: `1px solid ${monto === m ? C.amber : C.border}`, color: monto === m ? C.amber : C.text }}>S/ {m}</button>
             ))}
           </div>
           <input type="number" inputMode="numeric" placeholder="Otro monto" value={monto || ""} onChange={(e) => setMonto(+e.target.value)}
             style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: "13px", color: C.text, fontSize: 18, fontFamily: fontDisplay, fontWeight: 700, textAlign: "center", marginBottom: 14 }} />
           <button disabled={monto <= 0} onClick={guardarComb} style={{
             width: "100%", background: monto > 0 ? C.amber : C.surface2, color: monto > 0 ? "#1A1200" : C.textFaint, border: "none",
-            padding: "16px", borderRadius: 12, fontWeight: 800, fontSize: 17, cursor: monto > 0 ? "pointer" : "not-allowed", fontFamily: fontBody }}>
-            Enviar
-          </button>
+            padding: "16px", borderRadius: 12, fontWeight: 800, fontSize: 17, cursor: monto > 0 ? "pointer" : "not-allowed", fontFamily: fontBody }}>Enviar</button>
         </Overlay>
+      )}
+
+      {/* Modal cerrar día (km final) */}
+      {kmFinModal && (
+        <Overlay onClose={() => setKmFinModal(false)}>
+          <div className="flex items-center" style={{ gap: 10, marginBottom: 4 }}>
+            <Gauge size={22} color={C.green} />
+            <h3 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 19, margin: 0 }}>Cerrar mi día</h3>
+          </div>
+          <p style={{ fontSize: 13, color: C.textMut, margin: "0 0 8px" }}>¿Con cuántos kilómetros terminaste? Míralo en el tablero.</p>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 14 }}>Empezaste con {num(kmIni)} km</div>
+          <input type="number" inputMode="numeric" value={kmFinVal} onChange={(e) => setKmFinVal(e.target.value)}
+            style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px", color: C.text, fontSize: 26, fontFamily: fontDisplay, fontWeight: 800, textAlign: "center", marginBottom: 8 }} />
+          {kmFinVal !== "" && +kmFinVal < kmIni && <div style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>Debe ser mayor o igual a {num(kmIni)}</div>}
+          {kmFinVal !== "" && +kmFinVal >= kmIni && <div style={{ fontSize: 13, color: C.textMut, marginBottom: 10, textAlign: "center" }}>Recorriste <b style={{ color: C.text }}>{num(+kmFinVal - kmIni)} km</b></div>}
+          <button disabled={kmFinVal === "" || +kmFinVal < kmIni} onClick={cerrarDia} style={{
+            width: "100%", background: kmFinVal !== "" && +kmFinVal >= kmIni ? C.green : C.surface2, color: kmFinVal !== "" && +kmFinVal >= kmIni ? "#04120C" : C.textFaint, border: "none",
+            padding: "16px", borderRadius: 12, fontWeight: 800, fontSize: 17, cursor: kmFinVal !== "" && +kmFinVal >= kmIni ? "pointer" : "not-allowed", fontFamily: fontBody }}>Guardar y cerrar día</button>
+        </Overlay>
+      )}
+    </div>
+  );
+}
+
+/* ============================ BITÁCORA (gestión) ============================ */
+function Bitacora({ flota, bitacora }) {
+  const [filtroT, setFiltroT] = useState("todos");
+  const placa = (id) => flota.find((t) => t.id === id)?.placa ?? "—";
+  const PAL = [C.green, C.teal, C.amber, C.blue, C.red, "#A78BFA", "#F472B6", "#FB923C", "#22D3EE", "#FACC15"];
+  const colorDe = (id) => PAL[flota.findIndex((t) => t.id === id) % PAL.length];
+  const ICN = { Fuel, CheckCircle2, Truck, CircleDot, Wrench, Clock };
+
+  const esUnidad = filtroT !== "todos";
+  const items = (esUnidad ? bitacora.filter((e) => e.truckId === +filtroT) : bitacora)
+    .slice().sort((a, b) => b.ts.localeCompare(a.ts));
+
+  const gastoComb = items.filter((e) => e.monto).reduce((a, e) => a + e.monto, 0);
+  const fechaHora = (ts) => { const d = new Date(ts); return d.toLocaleString("es-PE", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); };
+
+  const chip = (active, accent) => ({
+    padding: "7px 13px", borderRadius: 99, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: fontBody,
+    border: `1px solid ${active ? (accent || C.green) : C.border}`, background: active ? `${accent || C.green}1E` : C.surface,
+    color: active ? (accent || C.green) : C.textMut, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7,
+  });
+
+  const conLlantas = flota.filter((t) => bitacora.some((e) => e.truckId === t.id));
+
+  return (
+    <div>
+      <div className="flex items-center rise" style={{ gap: 9, marginBottom: 14 }}>
+        <ClipboardList size={20} color={C.teal} />
+        <h2 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 18, margin: 0 }}>Bitácora de conductores</h2>
+        <span style={{ fontSize: 12, color: C.textMut, background: C.surface, border: `1px solid ${C.border}`, padding: "3px 10px", borderRadius: 99 }}>
+          {items.length} registro{items.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {bitacora.length === 0 ? (
+        <div className="rise" style={{ background: C.surface, border: `1px dashed ${C.border}`, borderRadius: 15, padding: "40px 20px", textAlign: "center" }}>
+          <ClipboardList size={32} color={C.textFaint} style={{ marginBottom: 12 }} />
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Aún no hay registros</div>
+          <div style={{ fontSize: 13, color: C.textMut, maxWidth: 360, margin: "0 auto" }}>
+            Cambia al rol <b>Conductor</b> (arriba a la derecha) y registra acciones del día. Aparecerán aquí con su fecha y hora.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* filtros por camión */}
+          <div className="rise" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            <button onClick={() => setFiltroT("todos")} style={chip(filtroT === "todos")}><Truck size={14} /> Todos</button>
+            {conLlantas.map((t) => (
+              <button key={t.id} onClick={() => setFiltroT(String(t.id))} style={chip(filtroT === String(t.id), colorDe(t.id))}>
+                <span style={{ width: 8, height: 8, borderRadius: 99, background: colorDe(t.id) }} /> {t.placa}
+              </button>
+            ))}
+          </div>
+
+          {gastoComb > 0 && (
+            <div className="rise" style={{ display: "flex", gap: 13, marginBottom: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 200, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, padding: "15px 18px" }}>
+                <div style={{ fontSize: 12, color: C.textMut, marginBottom: 6 }}>Combustible reportado por conductores</div>
+                <div className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 24, color: C.amber }}>{soles(gastoComb)}</div>
+              </div>
+            </div>
+          )}
+
+          {/* timeline */}
+          <div className="rise" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 15, padding: 20 }}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ color: C.textMut, fontSize: 11.5, textAlign: "left" }}>
+                    {["Fecha y hora", "Unidad", "Evento", "Monto"].map((h, i) => (
+                      <th key={h} style={{ padding: "8px 10px", fontWeight: 600, textAlign: i === 3 ? "right" : "left", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((e) => {
+                    const Ic = ICN[e.icon] || CheckCircle2;
+                    return (
+                      <tr key={e.id} style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+                        <td className="tnum" style={{ padding: "11px 10px", color: C.textMut, whiteSpace: "nowrap" }}>{fechaHora(e.ts)}</td>
+                        <td style={{ padding: "11px 10px", fontWeight: 600, fontFamily: fontDisplay }}>
+                          <span className="flex items-center" style={{ gap: 7 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 99, background: colorDe(e.truckId) }} /> {placa(e.truckId)}
+                          </span>
+                        </td>
+                        <td style={{ padding: "11px 10px" }}>
+                          <span className="flex items-center" style={{ gap: 9 }}><Ic size={16} color={e.color} /> {e.tipo}</span>
+                        </td>
+                        <td className="tnum" style={{ padding: "11px 10px", textAlign: "right", fontWeight: 700, color: e.monto ? C.amber : C.textFaint }}>
+                          {e.monto ? soles(e.monto) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
