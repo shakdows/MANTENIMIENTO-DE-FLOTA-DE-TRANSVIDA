@@ -34,7 +34,7 @@ import {
   Truck, Wrench, Fuel, LayoutDashboard, AlertTriangle, CheckCircle2,
   Gauge, TrendingUp, Plus, X, Droplet, Activity, CircleDollarSign,
   CircleDot, Ruler, BadgeDollarSign, CalendarClock, User, Building2,
-  ClipboardList, ChevronDown
+  ClipboardList, ChevronDown, Clock
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -1202,84 +1202,167 @@ function Proyeccion({ flota, fuel }) {
 
 /* ============================ CONDUCTOR ============================ */
 function Conductor({ truck, fuel, onFuel, onUpdateKm }) {
-  const [km, setKm] = useState(String(truck.km));
-  const { prom } = serieDiaria(truck);
-  const next = proximoMant(truck, prom);
-  const cambio = +km !== truck.km && +km > 0;
+  const [kmIni, setKmIni] = useState(truck.km);          // km al empezar el día
+  const [kmFin, setKmFin] = useState(null);              // km al terminar
+  const [eventos, setEventos] = useState([]);            // acciones del día
+  const [pidiendoMonto, setPidiendoMonto] = useState(false);
+  const [monto, setMonto] = useState(0);
 
-  // Semáforo simple para el mantenimiento (sin jerga)
-  const sem = next.rem <= 0
-    ? { color: C.red, txt: "Llévalo al taller", emoji: "🔴", sub: "Ya toca servicio" }
-    : next.diasRest <= 7
-      ? { color: C.amber, txt: "Pronto al taller", emoji: "🟡", sub: `Aprox. el ${fmtFecha(next.fecha)}` }
-      : { color: C.green, txt: "Todo bien", emoji: "🟢", sub: `Aprox. el ${fmtFecha(next.fecha)}` };
+  const sem = (() => {
+    const { prom } = serieDiaria(truck);
+    const next = proximoMant(truck, prom);
+    return next.rem <= 0
+      ? { color: C.red, txt: "Llévalo al taller", emoji: "🔴" }
+      : next.diasRest <= 7
+        ? { color: C.amber, txt: "Pronto al taller", emoji: "🟡" }
+        : { color: C.green, txt: "Todo bien", emoji: "🟢" };
+  })();
 
-  // Nombre simple del servicio (evita tecnicismos)
-  const servicioSimple = next.tipo.key === "aceite" ? "Cambio de aceite"
-    : next.tipo.key === "llantas" ? "Revisar llantas"
-    : next.tipo.key === "frenos" ? "Revisar frenos"
-    : next.tipo.nombre.startsWith("Filtro") ? "Cambio de filtro"
-    : "Revisión general";
+  const recorrido = kmFin != null ? Math.max(0, kmFin - kmIni) : 0;
+  const addEvento = (e) => setEventos((prev) => [{ id: Date.now(), hora: "ahora", ...e }, ...prev]);
+
+  // Montos rápidos para combustible (toca y listo)
+  const montosRapidos = [100, 150, 200, 250, 300, 400];
+
+  // Acciones del día (grandes, por toque)
+  const acciones = [
+    { key: "comb", label: "Eché combustible", icon: Fuel, color: C.amber, onClick: () => { setMonto(0); setPidiendoMonto(true); } },
+    { key: "carga", label: "Cargué / recogí", icon: CheckCircle2, color: C.green, onClick: () => addEvento({ tipo: "Carga recogida", icon: "CheckCircle2", color: C.green }) },
+    { key: "descarga", label: "Entregué / descargué", icon: Truck, color: C.teal, onClick: () => addEvento({ tipo: "Entrega realizada", icon: "Truck", color: C.teal }) },
+    { key: "llanta", label: "Problema con llanta", icon: CircleDot, color: C.blue, onClick: () => addEvento({ tipo: "Problema de llanta", icon: "CircleDot", color: C.blue }) },
+    { key: "falla", label: "Falla mecánica", icon: Wrench, color: C.red, onClick: () => addEvento({ tipo: "Falla mecánica", icon: "Wrench", color: C.red }) },
+    { key: "descanso", label: "Tomé descanso", icon: Clock, color: "#A78BFA", onClick: () => addEvento({ tipo: "Descanso", icon: "Clock", color: "#A78BFA" }) },
+  ];
+  const ICN = { Fuel, CheckCircle2, Truck, CircleDot, Wrench, Clock, CircleDollarSign };
+
+  const guardarComb = () => {
+    if (monto <= 0) return;
+    addEvento({ tipo: "Combustible", monto, icon: "Fuel", color: C.amber });
+    setPidiendoMonto(false);
+  };
 
   const big = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 18 };
+  const stepBtn = (active, color) => ({
+    flex: 1, padding: "14px", borderRadius: 14, cursor: "pointer", fontFamily: fontBody, fontWeight: 800, fontSize: 16,
+    border: `1px solid ${active ? color : C.border}`, background: active ? `${color}1A` : C.bg, color: active ? color : C.textMut,
+  });
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto" }}>
+    <div style={{ maxWidth: 540, margin: "0 auto" }}>
       {/* Mi camión */}
-      <div className="rise" style={{ ...big, background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, padding: 22, marginBottom: 14 }}>
-        <div style={{ fontSize: 13, color: C.textMut }}>Mi camión</div>
-        <div className="flex items-center" style={{ gap: 12, marginTop: 4 }}>
-          <span style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 36, letterSpacing: ".5px" }}>{truck.placa}</span>
-          <span className="flex items-center" style={{ gap: 6, fontSize: 12, fontWeight: 600, color: estadoColor(truck.estado), background: `${estadoColor(truck.estado)}1A`, padding: "5px 11px", borderRadius: 8 }}>
-            <span style={{ width: 7, height: 7, borderRadius: 99, background: estadoColor(truck.estado) }} /> {truck.estado}
-          </span>
+      <div className="rise" style={{ ...big, background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, padding: 20, marginBottom: 14 }}>
+        <div className="flex items-center" style={{ justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 12.5, color: C.textMut }}>Mi camión</div>
+            <div style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 34, letterSpacing: ".5px", marginTop: 2 }}>{truck.placa}</div>
+            <div style={{ fontSize: 13, color: C.textMut }}>{truck.modelo}</div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 40, lineHeight: 1 }}>{sem.emoji}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: sem.color, marginTop: 4 }}>{sem.txt}</div>
+          </div>
         </div>
       </div>
 
-      {/* Semáforo de mantenimiento — una sola cosa, grande */}
-      <div className="rise" style={{ ...big, border: `2px solid ${sem.color}`, padding: 22, marginBottom: 14, animationDelay: "60ms", textAlign: "center" }}>
-        <div style={{ fontSize: 46, lineHeight: 1 }}>{sem.emoji}</div>
-        <div style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 26, color: sem.color, marginTop: 8 }}>{sem.txt}</div>
-        <div style={{ fontSize: 15, color: C.text, marginTop: 8 }}>{servicioSimple}</div>
-        <div style={{ fontSize: 13, color: C.textMut, marginTop: 2 }}>{sem.sub}</div>
-      </div>
-
-      {/* Botón 1: anotar kilometraje */}
-      <div className="rise" style={{ ...big, padding: 20, marginBottom: 14, animationDelay: "120ms" }}>
-        <div className="flex items-center" style={{ gap: 10, marginBottom: 12 }}>
+      {/* Kilómetros del día: inicio y fin */}
+      <div className="rise" style={{ ...big, padding: 20, marginBottom: 14, animationDelay: "60ms" }}>
+        <div className="flex items-center" style={{ gap: 10, marginBottom: 14 }}>
           <div style={{ width: 38, height: 38, borderRadius: 11, background: `${C.teal}1A`, display: "grid", placeItems: "center" }}><Gauge size={20} color={C.teal} /></div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay }}>Anotar kilómetros</div>
-            <div style={{ fontSize: 12.5, color: C.textMut }}>Copia el número del tablero</div>
+          <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay }}>Kilómetros de hoy</div>
+        </div>
+        <div className="flex items-center" style={{ gap: 12 }}>
+          <div style={{ flex: 1, textAlign: "center", background: C.bg, borderRadius: 12, padding: "12px 8px", border: `1px solid ${C.borderSoft}` }}>
+            <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 4 }}>Empecé con</div>
+            <div className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 22 }}>{num(kmIni)}</div>
+          </div>
+          <div style={{ color: C.textFaint, fontSize: 20 }}>→</div>
+          <div style={{ flex: 1, textAlign: "center", background: C.bg, borderRadius: 12, padding: "12px 8px", border: `1px solid ${kmFin != null ? C.green + "55" : C.borderSoft}` }}>
+            <div style={{ fontSize: 11.5, color: C.textMut, marginBottom: 4 }}>Terminé con</div>
+            <div className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 22, color: kmFin != null ? C.green : C.textFaint }}>{kmFin != null ? num(kmFin) : "—"}</div>
           </div>
         </div>
-        <input type="number" value={km} onChange={(e) => setKm(e.target.value)} inputMode="numeric"
-          style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", color: C.text, fontSize: 26, fontFamily: fontDisplay, fontWeight: 800, textAlign: "center" }} />
-        <button disabled={!cambio} onClick={() => onUpdateKm(truck.id, +km)}
-          style={{ width: "100%", marginTop: 11, background: cambio ? C.teal : C.surface2, color: cambio ? "#04120C" : C.textFaint, border: "none", padding: "15px", borderRadius: 12, fontWeight: 800, fontSize: 16, cursor: cambio ? "pointer" : "not-allowed", fontFamily: fontBody }}>
-          Guardar
-        </button>
+        {recorrido > 0 && (
+          <div style={{ textAlign: "center", fontSize: 13, color: C.textMut, marginTop: 10 }}>
+            Recorrí <b className="tnum" style={{ color: C.text }}>{num(recorrido)} km</b> hoy
+          </div>
+        )}
+        <div className="flex items-center" style={{ gap: 10, marginTop: 14 }}>
+          <button onClick={() => setKmIni((k) => k)} style={{ ...stepBtn(true, C.teal), opacity: .6, cursor: "default" }}>Inicio fijado</button>
+          <button onClick={() => { const v = window.prompt("¿Con cuántos km terminaste?", String(Math.max(kmIni, truck.km))); if (v && +v >= kmIni) { setKmFin(+v); onUpdateKm(truck.id, +v); } }}
+            style={stepBtn(kmFin != null, C.green)}>{kmFin != null ? "✓ Día cerrado" : "Cerrar mi día"}</button>
+        </div>
       </div>
 
-      {/* Botón 2: cargué combustible (grande, con aviso anti-robo) */}
-      <div className="rise" style={{ ...big, padding: 20, animationDelay: "160ms" }}>
-        <div className="flex items-center" style={{ gap: 10, marginBottom: 12 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${C.amber}1A`, display: "grid", placeItems: "center" }}><Fuel size={20} color={C.amber} /></div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay }}>Eché combustible</div>
-            <div style={{ fontSize: 12.5, color: C.textMut }}>Después de cada grifo</div>
+      {/* Acciones del día — toca y listo */}
+      <div className="rise" style={{ ...big, padding: 20, marginBottom: 14, animationDelay: "120ms" }}>
+        <div style={{ fontWeight: 700, fontSize: 16, fontFamily: fontDisplay, marginBottom: 4 }}>¿Qué pasó hoy?</div>
+        <div style={{ fontSize: 12.5, color: C.textMut, marginBottom: 14 }}>Toca lo que hiciste. Es solo un clic.</div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {acciones.map((a) => (
+            <button key={a.key} onClick={a.onClick} className="hov" style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "18px 10px", borderRadius: 14, cursor: "pointer",
+              background: C.bg, border: `1px solid ${C.border}`, color: C.text, fontFamily: fontBody }}>
+              <div style={{ width: 46, height: 46, borderRadius: 13, background: `${a.color}1A`, display: "grid", placeItems: "center" }}>
+                <a.icon size={24} color={a.color} />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, textAlign: "center", lineHeight: 1.2 }}>{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Registro del día */}
+      {eventos.length > 0 && (
+        <div className="rise" style={{ ...big, padding: 20, animationDelay: "160ms" }}>
+          <div style={{ fontWeight: 700, fontSize: 15, fontFamily: fontDisplay, marginBottom: 12 }}>Lo que registré hoy</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {eventos.map((e) => {
+              const Ic = ICN[e.icon] || CheckCircle2;
+              return (
+                <div key={e.id} className="flex items-center" style={{ justifyContent: "space-between", background: C.bg, borderRadius: 11, padding: "11px 13px", border: `1px solid ${C.borderSoft}` }}>
+                  <span className="flex items-center" style={{ gap: 10 }}>
+                    <Ic size={17} color={e.color} />
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>{e.tipo}</span>
+                  </span>
+                  {e.monto
+                    ? <span className="tnum" style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 16, color: C.amber }}>{soles(e.monto)}</span>
+                    : <CheckCircle2 size={17} color={C.green} />}
+                </div>
+              );
+            })}
           </div>
         </div>
-        <div className="flex items-center" style={{ gap: 8, background: `${C.amber}10`, border: `1px solid ${C.amber}33`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-          <AlertTriangle size={26} color={C.amber} style={{ flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, color: C.text, lineHeight: 1.4 }}>
-            Toma <b>foto del tablero</b> (los kilómetros) y <b>foto de la boleta</b> del grifo. Es para tu respaldo.
-          </span>
-        </div>
-        <button onClick={onFuel} className="flex items-center" style={{ width: "100%", justifyContent: "center", gap: 8, background: C.amber, color: "#1A1200", border: "none", padding: "16px", borderRadius: 12, fontWeight: 800, fontSize: 17, cursor: "pointer", fontFamily: fontBody }}>
-          <Plus size={20} strokeWidth={2.8} /> Registrar
-        </button>
-      </div>
+      )}
+
+      {/* Modal: monto de combustible en soles */}
+      {pidiendoMonto && (
+        <Overlay onClose={() => setPidiendoMonto(false)}>
+          <div className="flex items-center" style={{ gap: 10, marginBottom: 4 }}>
+            <Fuel size={22} color={C.amber} />
+            <h3 style={{ fontFamily: fontDisplay, fontWeight: 800, fontSize: 19, margin: 0 }}>¿Cuánto echaste?</h3>
+          </div>
+          <p style={{ fontSize: 13, color: C.textMut, margin: "0 0 16px" }}>Toca un monto o escríbelo. Es en soles.</p>
+          <div className="tnum" style={{ textAlign: "center", fontFamily: fontDisplay, fontWeight: 900, fontSize: 40, color: monto > 0 ? C.amber : C.textFaint, marginBottom: 16 }}>
+            {soles(monto || 0)}
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+            {montosRapidos.map((m) => (
+              <button key={m} onClick={() => setMonto(m)} className="hov" style={{
+                padding: "16px 8px", borderRadius: 12, cursor: "pointer", fontFamily: fontDisplay, fontWeight: 800, fontSize: 17,
+                background: monto === m ? `${C.amber}22` : C.bg, border: `1px solid ${monto === m ? C.amber : C.border}`, color: monto === m ? C.amber : C.text }}>
+                S/ {m}
+              </button>
+            ))}
+          </div>
+          <input type="number" inputMode="numeric" placeholder="Otro monto" value={monto || ""} onChange={(e) => setMonto(+e.target.value)}
+            style={{ width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12, padding: "13px", color: C.text, fontSize: 18, fontFamily: fontDisplay, fontWeight: 700, textAlign: "center", marginBottom: 14 }} />
+          <button disabled={monto <= 0} onClick={guardarComb} style={{
+            width: "100%", background: monto > 0 ? C.amber : C.surface2, color: monto > 0 ? "#1A1200" : C.textFaint, border: "none",
+            padding: "16px", borderRadius: 12, fontWeight: 800, fontSize: 17, cursor: monto > 0 ? "pointer" : "not-allowed", fontFamily: fontBody }}>
+            Enviar
+          </button>
+        </Overlay>
+      )}
     </div>
   );
 }
