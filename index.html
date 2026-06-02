@@ -1212,10 +1212,9 @@ function Proyeccion({ flota, fuel }) {
 
 /* ============================ CONDUCTOR ============================ */
 function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quitarEvento, kmInicioDia, setKmInicioDia }) {
-  const HOY = "2026-05-31";
-  // km inicio del día: si no se fijó hoy, es el km actual del camión
+  const HOY = new Date().toISOString().slice(0, 10);  // fecha real del sistema
+  // km inicio del día: si no se fijó hoy, es el km actual del camión (arranca directo)
   const kmIni = kmInicioDia[truck.id]?.fecha === HOY ? kmInicioDia[truck.id].km : truck.km;
-  const diaIniciado = kmInicioDia[truck.id]?.fecha === HOY;
 
   const [kmFinModal, setKmFinModal] = useState(false);
   const [kmFinVal, setKmFinVal] = useState("");
@@ -1228,19 +1227,10 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quita
   const kmFin = cerrado ? kmInicioDia[truck.id].kmFin : null;
   const recorrido = kmFin != null ? Math.max(0, kmFin - kmIni) : 0;
 
-  const sem = (() => {
-    const { prom } = serieDiaria(truck);
-    const next = proximoMant(truck, prom);
-    return next.rem <= 0 ? { color: C.red, txt: "Llévalo al taller", emoji: "🔴" }
-      : next.diasRest <= 7 ? { color: C.amber, txt: "Pronto al taller", emoji: "🟡" }
-      : { color: C.green, txt: "Todo bien", emoji: "🟢" };
-  })();
-
-  const iniciarDia = () => setKmInicioDia((p) => ({ ...p, [truck.id]: { fecha: HOY, km: truck.km, cerrado: false } }));
   const cerrarDia = () => {
     const v = +kmFinVal;
     if (v >= kmIni) {
-      setKmInicioDia((p) => ({ ...p, [truck.id]: { ...(p[truck.id] || { fecha: HOY, km: kmIni }), fecha: HOY, km: kmIni, cerrado: true, kmFin: v } }));
+      setKmInicioDia((p) => ({ ...p, [truck.id]: { fecha: HOY, km: kmIni, cerrado: true, kmFin: v } }));
       onUpdateKm(truck.id, v);
       setKmFinModal(false);
     }
@@ -1266,17 +1256,9 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quita
     <div style={{ maxWidth: 540, margin: "0 auto" }}>
       {/* Mi camión */}
       <div className="rise" style={{ ...big, background: `linear-gradient(135deg, ${C.surface}, ${C.surface2})`, padding: 20, marginBottom: 14 }}>
-        <div className="flex items-center" style={{ justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 12.5, color: C.textMut }}>Mi camión</div>
-            <div style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 34, letterSpacing: ".5px", marginTop: 2 }}>{truck.placa}</div>
-            <div style={{ fontSize: 13, color: C.textMut }}>{truck.modelo}</div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 40, lineHeight: 1 }}>{sem.emoji}</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: sem.color, marginTop: 4 }}>{sem.txt}</div>
-          </div>
-        </div>
+        <div style={{ fontSize: 12.5, color: C.textMut }}>Mi camión</div>
+        <div style={{ fontFamily: fontDisplay, fontWeight: 900, fontSize: 34, letterSpacing: ".5px", marginTop: 2 }}>{truck.placa}</div>
+        <div style={{ fontSize: 13, color: C.textMut }}>{truck.modelo}</div>
       </div>
 
       {/* Kilómetros del día */}
@@ -1302,11 +1284,7 @@ function Conductor({ truck, fuel, onFuel, onUpdateKm, bitacora, addEvento, quita
           </div>
         )}
         <div style={{ marginTop: 14 }}>
-          {!diaIniciado ? (
-            <button onClick={iniciarDia} style={{ width: "100%", background: C.teal, color: "#04120C", border: "none", padding: "15px", borderRadius: 12, fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: fontBody }}>
-              Empezar mi día
-            </button>
-          ) : !cerrado ? (
+          {!cerrado ? (
             <button onClick={() => { setKmFinVal(String(truck.km)); setKmFinModal(true); }} style={{ width: "100%", background: C.green, color: "#04120C", border: "none", padding: "15px", borderRadius: 12, fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: fontBody }}>
               Cerrar mi día
             </button>
