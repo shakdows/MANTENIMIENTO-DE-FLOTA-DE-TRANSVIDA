@@ -68,7 +68,7 @@ const FLOTA_INI = [
     desde: { aceite: 5200, filtroAire: 21500, filtroComb: 8000, frenos: 11000, llantas: 16000, refrig: 18000 } },
   { id: 3, placa: "D2H-451", modelo: "Hino Serie 500 GH", anio: 2022, km: 112400, capGal: 53, estado: "Operativo",
     desde: { aceite: 8000, filtroAire: 6000, filtroComb: 19200, frenos: 28500, llantas: 12000, refrig: 30000 } },
-  { id: 4, placa: "B8K-220", modelo: "Hino Serie 300",    anio: 2023, km: 67800, capGal: 26, estado: "Mantenimiento",
+  { id: 4, placa: "B8K-220", modelo: "Hino Serie 300",    anio: 2023, km: 67800, capGal: 26, estado: "En taller",
     desde: { aceite: 10800, filtroAire: 9000, filtroComb: 14000, frenos: 20000, llantas: 19500, refrig: 25000 } },
   { id: 5, placa: "A9M-118", modelo: "Volvo FH 440",      anio: 2021, km: 198300, capGal: 79, estado: "Operativo",
     desde: { aceite: 7600, filtroAire: 14000, filtroComb: 11000, frenos: 9000, llantas: 18800, refrig: 35000 } },
@@ -114,31 +114,34 @@ const LLANTAS_INI = [
 ];
 
 // Equipamiento obligatorio que debe llevar cada unidad (checklist de inspección)
-// critico: true = si falta, la unidad NO puede salir a ruta
+// tipo: "documento" (papeles) · "mecanico" (impide circular → taller) · "objeto" (accesorio deseable)
 const EQUIPO_CATALOGO = [
-  { key: "soat",      nombre: "SOAT vigente",              icon: ClipboardList, critico: true },
-  { key: "revtec",    nombre: "Revisión técnica vigente",  icon: ClipboardList, critico: true },
-  { key: "repuesto",  nombre: "Llanta de repuesto",        icon: CircleDot,     critico: true },
-  { key: "extintor",  nombre: "Extintor vigente",          icon: Activity,      critico: true },
-  { key: "conos",     nombre: "Conos de seguridad (2)",    icon: AlertTriangle, critico: false },
-  { key: "triangulo", nombre: "Triángulos reflectivos",    icon: AlertTriangle, critico: false },
-  { key: "botiquin",  nombre: "Botiquín de primeros auxilios", icon: Plus,      critico: false },
-  { key: "gata",      nombre: "Gata / palanca",            icon: Wrench,        critico: false },
-  { key: "llaveR",    nombre: "Llave de ruedas",           icon: Wrench,        critico: false },
-  { key: "tacos",     nombre: "Tacos / cuñas",             icon: CircleDot,     critico: false },
-  { key: "chaleco",   nombre: "Chaleco reflectivo",        icon: User,          critico: false },
-  { key: "linterna",  nombre: "Linterna",                  icon: Activity,      critico: false },
+  { key: "soat",      nombre: "SOAT vigente",              icon: ClipboardList, tipo: "documento" },
+  { key: "revtec",    nombre: "Revisión técnica vigente",  icon: ClipboardList, tipo: "documento" },
+  { key: "licencia",  nombre: "Licencia del conductor",    icon: User,          tipo: "documento" },
+  { key: "repuesto",  nombre: "Llanta de repuesto",        icon: CircleDot,     tipo: "mecanico" },
+  { key: "extintor",  nombre: "Extintor vigente",          icon: Activity,      tipo: "mecanico" },
+  { key: "frenosOK",  nombre: "Frenos en buen estado",     icon: AlertTriangle, tipo: "mecanico" },
+  { key: "lucesOK",   nombre: "Luces funcionando",         icon: Activity,      tipo: "mecanico" },
+  { key: "conos",     nombre: "Conos de seguridad (2)",    icon: AlertTriangle, tipo: "objeto" },
+  { key: "triangulo", nombre: "Triángulos reflectivos",    icon: AlertTriangle, tipo: "objeto" },
+  { key: "botiquin",  nombre: "Botiquín de primeros auxilios", icon: Plus,      tipo: "objeto" },
+  { key: "gata",      nombre: "Gata / palanca",            icon: Wrench,        tipo: "objeto" },
+  { key: "llaveR",    nombre: "Llave de ruedas",           icon: Wrench,        tipo: "objeto" },
+  { key: "tacos",     nombre: "Tacos / cuñas",             icon: CircleDot,     tipo: "objeto" },
+  { key: "chaleco",   nombre: "Chaleco reflectivo",        icon: User,          tipo: "objeto" },
+  { key: "linterna",  nombre: "Linterna",                  icon: Activity,      tipo: "objeto" },
 ];
 // estado inicial por camión: true = presente, false = falta (demo)
 const EQUIPO_INI = {
-  1: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: false, soat: true, revtec: true },
-  2: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: false, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
-  3: { conos: true, triangulo: false, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: false, chaleco: true, linterna: true, soat: true, revtec: true },
-  4: { conos: false, triangulo: true, repuesto: true, extintor: false, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: false },
-  5: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
-  6: { conos: true, triangulo: true, repuesto: false, extintor: true, botiquin: true, gata: false, llaveR: true, tacos: true, chaleco: false, linterna: true, soat: true, revtec: false },
-  7: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: false, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
-  8: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true },
+  1: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: false, soat: true, revtec: true, licencia: true, frenosOK: true, lucesOK: true },
+  2: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: false, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true, licencia: true, frenosOK: true, lucesOK: true },
+  3: { conos: true, triangulo: false, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: false, chaleco: true, linterna: true, soat: false, revtec: true, licencia: true, frenosOK: true, lucesOK: true },
+  4: { conos: false, triangulo: true, repuesto: false, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: false, licencia: true, frenosOK: true, lucesOK: false },
+  5: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true, licencia: true, frenosOK: true, lucesOK: true },
+  6: { conos: true, triangulo: true, repuesto: false, extintor: true, botiquin: true, gata: false, llaveR: true, tacos: true, chaleco: false, linterna: true, soat: true, revtec: false, licencia: true, frenosOK: false, lucesOK: true },
+  7: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: false, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true, licencia: true, frenosOK: true, lucesOK: true },
+  8: { conos: true, triangulo: true, repuesto: true, extintor: true, botiquin: true, gata: true, llaveR: true, tacos: true, chaleco: true, linterna: true, soat: true, revtec: true, licencia: true, frenosOK: true, lucesOK: true },
 };
 
 /* ============================ HELPERS ============================ */
@@ -150,7 +153,11 @@ function servStatus(tipo, desdeKm) {
   if (rem <= 2000) return { estado: "Próximo", color: C.amber, rem };
   return { estado: "Al día", color: C.green, rem };
 }
-const estadoColor = (e) => e === "Operativo" ? C.green : e === "Mantenimiento" ? C.amber : C.red;
+const estadoColor = (e) =>
+  e === "Operativo" ? C.green
+  : e === "Faltan objetos" || e === "Mantenimiento" ? C.amber
+  : e === "Falta documentos" ? "#FB923C"
+  : C.red;
 
 function tireMetrics(t, truckKm) {
   const recorridos = Math.max(1, truckKm - t.kmInst);
@@ -337,9 +344,7 @@ function App() {
 
   const saveEquipo = (truckId, equipo, estadoTxt) => {
     setEquipoFlota((prev) => ({ ...prev, [truckId]: { ...equipo } }));
-    setFlota((prev) => prev.map((t) => (t.id === truckId
-      ? { ...t, estado: estadoTxt === "En taller" ? "En taller" : estadoTxt === "Operativo con observaciones" ? "Mantenimiento" : "Operativo" }
-      : t)));
+    setFlota((prev) => prev.map((t) => (t.id === truckId ? { ...t, estado: estadoTxt } : t)));
   };
 
   const NAV_ALL = [
@@ -1607,21 +1612,25 @@ function TruckModal({ truck, fuel, equipoInicial, onClose, onSaveEquipo }) {
   const [guardado, setGuardado] = useState(false);
   const toggle = (k) => { setEquipo((e) => ({ ...e, [k]: !e[k] })); setGuardado(false); };
 
-  const criticos = EQUIPO_CATALOGO.filter((it) => it.critico);
-  const opcionales = EQUIPO_CATALOGO.filter((it) => !it.critico);
-  const faltanCriticos = criticos.filter((it) => !equipo[it.key]);
-  const faltanOpc = opcionales.filter((it) => !equipo[it.key]);
+  const docs = EQUIPO_CATALOGO.filter((it) => it.tipo === "documento");
+  const mecan = EQUIPO_CATALOGO.filter((it) => it.tipo === "mecanico");
+  const objs = EQUIPO_CATALOGO.filter((it) => it.tipo === "objeto");
+  const faltanDocs = docs.filter((it) => !equipo[it.key]);
+  const faltanMecan = mecan.filter((it) => !equipo[it.key]);
+  const faltanObjs = objs.filter((it) => !equipo[it.key]);
 
-  // Estado operativo real: rojo si falta algo crítico, ámbar si solo faltan opcionales, verde si completo
-  const estado = faltanCriticos.length > 0
-    ? { txt: "En taller", color: C.red, desc: `No puede salir: falta ${faltanCriticos.map((i) => i.nombre.split(" ")[0]).join(", ").toLowerCase()}` }
-    : faltanOpc.length > 0
-      ? { txt: "Operativo con observaciones", color: C.amber, desc: `Puede trabajar · faltan ${faltanOpc.length} ítem${faltanOpc.length > 1 ? "s" : ""} no crítico${faltanOpc.length > 1 ? "s" : ""}` }
-      : { txt: "Operativo", color: C.green, desc: "Listo para ruta · equipamiento completo" };
+  // Prioridad: mecánico (taller) > documentos > objetos > operativo
+  const estado = faltanMecan.length > 0
+    ? { txt: "En taller", color: C.red, desc: `No puede trabajar: ${faltanMecan.map((i) => i.nombre.toLowerCase()).join(", ")}` }
+    : faltanDocs.length > 0
+      ? { txt: "Falta documentos", color: "#FB923C", desc: `No puede circular: ${faltanDocs.map((i) => i.nombre.split(" ")[0]).join(", ").toLowerCase()}` }
+      : faltanObjs.length > 0
+        ? { txt: "Faltan objetos", color: C.amber, desc: `Puede trabajar · faltan ${faltanObjs.length} accesorio${faltanObjs.length > 1 ? "s" : ""}` }
+        : { txt: "Operativo", color: C.green, desc: "Listo para ruta · todo completo" };
 
-  const itemBtn = (it) => {
+  const itemBtn = (it, faltaColor) => {
     const ok = !!equipo[it.key];
-    const c = ok ? C.green : (it.critico ? C.red : C.amber);
+    const c = ok ? C.green : faltaColor;
     return (
       <button key={it.key} onClick={() => toggle(it.key)} className="flex items-center"
         style={{ gap: 9, justifyContent: "space-between", textAlign: "left", padding: "10px 11px", borderRadius: 9, cursor: "pointer", fontFamily: fontBody,
@@ -1668,24 +1677,34 @@ function TruckModal({ truck, fuel, equipoInicial, onClose, onSaveEquipo }) {
         ))}
       </div>
 
-      {/* Obligatorio para trabajar (crítico) */}
+      {/* Documentos */}
       <div className="flex items-center" style={{ gap: 8, marginBottom: 10 }}>
-        <AlertTriangle size={15} color={C.red} />
-        <span style={{ fontSize: 12.5, color: C.text, fontWeight: 700 }}>Obligatorio para trabajar</span>
-        <span style={{ fontSize: 11, color: C.textFaint }}>si falta uno, la unidad va a taller</span>
+        <ClipboardList size={15} color="#FB923C" />
+        <span style={{ fontSize: 12.5, color: C.text, fontWeight: 700 }}>Documentos</span>
+        <span style={{ fontSize: 11, color: C.textFaint }}>sin esto no puede circular legalmente</span>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 16 }}>
-        {criticos.map(itemBtn)}
+        {docs.map((it) => itemBtn(it, "#FB923C"))}
       </div>
 
-      {/* Recomendable (opcional) */}
+      {/* Mecánico / partes */}
+      <div className="flex items-center" style={{ gap: 8, marginBottom: 10 }}>
+        <Wrench size={15} color={C.red} />
+        <span style={{ fontSize: 12.5, color: C.text, fontWeight: 700 }}>Mecánico y partes</span>
+        <span style={{ fontSize: 11, color: C.textFaint }}>si falla, va a taller</span>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 16 }}>
+        {mecan.map((it) => itemBtn(it, C.red))}
+      </div>
+
+      {/* Objetos / accesorios */}
       <div className="flex items-center" style={{ gap: 8, marginBottom: 10 }}>
         <CheckCircle2 size={15} color={C.amber} />
-        <span style={{ fontSize: 12.5, color: C.text, fontWeight: 700 }}>Recomendable</span>
-        <span style={{ fontSize: 11, color: C.textFaint }}>no impide trabajar, pero debe completarse</span>
+        <span style={{ fontSize: 12.5, color: C.text, fontWeight: 700 }}>Objetos del camión</span>
+        <span style={{ fontSize: 11, color: C.textFaint }}>no impide trabajar, pero deben estar</span>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 18 }}>
-        {opcionales.map(itemBtn)}
+        {objs.map((it) => itemBtn(it, C.amber))}
       </div>
 
       <button onClick={() => { onSaveEquipo && onSaveEquipo(truck.id, equipo, estado.txt); setGuardado(true); }}
